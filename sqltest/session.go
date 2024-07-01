@@ -71,7 +71,8 @@ func (parentSession *SqlSession) EphemeralSession(
 	}
 
 	// Perform migrations
-	provider := pgmigrate.FileMigrationProvider{Directory: "migrations"}
+	// Convention: migrations folder always exists one level up from db tests.
+	provider := pgmigrate.FileMigrationProvider{Directory: "../migrations"}
 	migrations := provider.GetMigrations()
 	_, err = pgmigrate.RunMigrations(db, migrations, 0)
 	if err != nil {
