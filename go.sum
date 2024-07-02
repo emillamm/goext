@@ -1,4 +1,4 @@
-github.com/emillamm/pgmigrate v0.0.8 h1:gvauZtd3f7mH/nzrAh4htphGZPRhgEUfG6mdsdTl8RI=
-github.com/emillamm/pgmigrate v0.0.8/go.mod h1:aluLgXuVp6a7pDDXiX4FeE7r1POhqAeZ7F3GXZPFuGA=
+github.com/emillamm/pgmigrate v0.0.9 h1:jmKA1K8vFpJXrYdY22Nqwr1LhC5vsHxDHXTO/E1cHk4=
+github.com/emillamm/pgmigrate v0.0.9/go.mod h1:aluLgXuVp6a7pDDXiX4FeE7r1POhqAeZ7F3GXZPFuGA=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
