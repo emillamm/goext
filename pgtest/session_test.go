@@ -4,12 +4,13 @@ import (
 	"testing"
 	"github.com/jackc/pgx/v5"
 	"context"
+	"os"
 )
 
 func TestSession(t *testing.T) {
 
 	ctx := context.Background()
-	session := NewSession(t)
+	session := NewSession(t, os.Getenv)
 	defer session.Close()
 
 	session.Run("Run tests with an ephemeral postgres database", func(t *testing.T, conn *pgx.Conn) {

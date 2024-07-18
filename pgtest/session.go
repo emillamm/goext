@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/rand"
 	"database/sql"
-	"strconv"
-	"github.com/emillamm/goext/env"
+	"github.com/emillamm/envx"
+	"github.com/emillamm/goext/pg"
 	"github.com/emillamm/pgmigrate"
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -40,16 +40,17 @@ func (s *SqlSession) Run(msg string, testFn func(*testing.T, *pgx.Conn))  {
 	})
 }
 
-func NewSession(t *testing.T) *SqlSession {
+func NewSession(t *testing.T, env envx.EnvX) *SqlSession {
 	t.Helper()
-	connParams, err := DefaultConnectionParams()
+	connParams, err := LoadTestConnectionParams(env)
 	if err != nil {
-		t.Errorf("unable to create connection params: %v", err)
+		t.Errorf("unable to create connection params: %#v", err)
 		return &SqlSession{}
 	}
+	println(connParams.ConnectionString())
 	db, err := openLegacyConnection(connParams.ConnectionString(), "pgx")
 	if err != nil {
-		t.Errorf("unable to create connection params: %v", err)
+		t.Errorf("unable to open legacy connection: %v", err)
 		return &SqlSession{}
 	}
 	return &SqlSession{
@@ -59,6 +60,29 @@ func NewSession(t *testing.T) *SqlSession {
 		db: db,
 	}
 }
+
+func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
+	var err envx.Errors
+
+	// These defaults work with the offical postgres Docker image when running:
+	// docker run --rm --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres
+	host := env.Getenv("POSTGRES_HOST", envx.Default("localhost"))
+	port := env.AsInt().Getenv("POSTGRES_PORT", envx.Default(5432), envx.Observe[int](&err))
+	database := env.Getenv("POSTGRES_DATABASE", envx.Default("postgres"))
+	user := env.Getenv("POSTGRES_USER", envx.Default("postgres"))
+	pass := env.Getenv("POSTGRES_PASS", envx.Default("postgres"))
+
+	params := pg.ConnectionParams{
+		Host: host,
+		Port: port,
+		Database: database,
+		User: user,
+		Pass: pass,
+	}
+
+	return params, err.Error()
+}
+
 
 func (parentSession *SqlSession) Close() {
 	if parentSession.db != nil {
@@ -131,36 +155,6 @@ func (parentSession *SqlSession) EphemeralSession(
 	defer conn.Close(context.Background())
 
 	block(conn)
-}
-
-type ConnectionParams struct {
-	Host string
-	Port int
-	User string
-	Pass string
-}
-
-func (c ConnectionParams) ConnectionString() string {
-	return fmt.Sprintf("user=%s password=%s host=%s port=%d sslmode=disable", c.User, c.Pass, c.Host, c.Port)
-}
-
-func DefaultConnectionParams() (params ConnectionParams, err error) {
-	host := env.GetenvWithDefault("POSTGRES_HOST", "localhost")
-	portStr := env.GetenvWithDefault("POSTGRES_PORT", "5432")
-	user := env.GetenvWithDefault("POSTGRES_USER", "postgres")
-	pass := env.GetenvWithDefault("POSTGRES_PASSWORD", "postgres")
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		err = fmt.Errorf("invalid PORT %s", portStr)
-		return
-	}
-	params = ConnectionParams{
-		Host: host,
-		Port: port,
-		User: user,
-		Pass: pass,
-	}
-	return
 }
 
 func openLegacyConnection(connStr string, driver string) (db *sql.DB, err error) {
