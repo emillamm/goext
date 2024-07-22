@@ -47,7 +47,6 @@ func NewSession(t *testing.T, env envx.EnvX) *SqlSession {
 		t.Errorf("unable to create connection params: %#v", err)
 		return &SqlSession{}
 	}
-	println(connParams.ConnectionString())
 	db, err := openLegacyConnection(connParams.ConnectionString(), "pgx")
 	if err != nil {
 		t.Errorf("unable to open legacy connection: %v", err)
@@ -96,6 +95,25 @@ func (parentSession *SqlSession) EphemeralSession(
 ) {
 	t.Helper()
 
+	parentSession.EphemeralConnection(t, func(params pg.ConnectionParams) {
+		// Create pgx connection for using in the test
+		conn, err := pgx.Connect(context.Background(), params.ConnectionString())
+		if err != nil {
+			t.Errorf("failed to open pgx connection %s", err)
+			return
+		}
+		defer conn.Close(context.Background())
+
+		block(conn)
+	})
+}
+
+func (parentSession *SqlSession) EphemeralConnection(
+	t testing.TB,
+	block func(pg.ConnectionParams),
+) {
+	t.Helper()
+
 	user := randomUser()
 	password := "test"
 
@@ -125,11 +143,16 @@ func (parentSession *SqlSession) EphemeralSession(
 		}
 	}()
 
-	connStr := fmt.Sprintf("user=%s password=%s host=%s port=%d database=%s sslmode=disable",
-		user, password, parentSession.Host, parentSession.Port, user)
+	params := pg.ConnectionParams{
+		Host: parentSession.Host,
+		Port: parentSession.Port,
+		Database: user,
+		User: user,
+		Pass: password,
+	}
 
 	// Set up legacy connection for running migrations
-	migrationDb, err := openLegacyConnection(connStr, "pgx")
+	migrationDb, err := openLegacyConnection(params.ConnectionString(), "pgx")
 	if err != nil {
 		t.Errorf("failed to open connection for migrations %s", err)
 		return
@@ -146,15 +169,7 @@ func (parentSession *SqlSession) EphemeralSession(
 		return
 	}
 
-	// Create pgx connection for using in the test
-	conn, err := pgx.Connect(context.Background(), connStr)
-	if err != nil {
-		t.Errorf("failed to open pgx connection %s", err)
-		return
-	}
-	defer conn.Close(context.Background())
-
-	block(conn)
+	block(params)
 }
 
 func openLegacyConnection(connStr string, driver string) (db *sql.DB, err error) {
