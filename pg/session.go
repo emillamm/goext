@@ -3,6 +3,7 @@ package pg
 import (
 	"fmt"
 	"github.com/emillamm/envx"
+	"strconv"
 )
 
 type ConnectionParams struct {
@@ -35,5 +36,24 @@ func LoadConnectionParams(env envx.EnvX) (ConnectionParams, error) {
 	}
 
 	return params, err.Error()
+}
+
+func (c ConnectionParams) EnvOverwrite(env envx.EnvX) envx.EnvX {
+	return func (name string) string {
+		switch name {
+		case "POSTGRES_HOST":
+			return c.Host
+		case "POSTGRES_PORT":
+			return strconv.Itoa(c.Port)
+		case "POSTGRES_DATABASE":
+			return c.Database
+		case "POSTGRES_USER":
+			return c.User
+		case "POSTGRES_PASS":
+			return c.Pass
+		default:
+			return env(name)
+		}
+	}
 }
 

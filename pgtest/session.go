@@ -12,52 +12,143 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"context"
+	"sync"
 )
 
-type SqlSession struct {
+type SessionManager struct {
 	Host string
 	Port int
-	t *testing.T
 	db *sql.DB
+	sessions map[*EphemeralSession]sync.Once
 }
 
-func (s *SqlSession) Ready() bool {
-	if s.db != nil {
-		return true
-	}
-	return false
+type EphemeralSession struct {
+	Params pg.ConnectionParams
+	conn *pgx.Conn
+	closeOnce sync.Once
 }
 
-func (s *SqlSession) Run(msg string, testFn func(*testing.T, *pgx.Conn))  {
-	if !s.Ready() {
-		return
+func (e *EphemeralSession) Connect() (*pgx.Conn, error) {
+	if e.conn == nil {
+		// Create pgx connection for using in the test
+		conn, err := pgx.Connect(context.Background(), e.Params.ConnectionString())
+		if err != nil {
+			return nil, fmt.Errorf("failed to open pgx connection: %w", err)
+		}
+		e.conn = conn
 	}
-	s.t.Run(msg, func(t *testing.T) {
-		s.EphemeralSession(t, func(conn *pgx.Conn) {
-			testFn(t, conn)
+	return e.conn, nil
+}
+
+func (e *EphemeralSession) Close() {
+	if e.conn != nil {
+		e.closeOnce.Do(func () {
+			e.conn.Close(context.Background())
 		})
-
-	})
+	}
 }
 
-func NewSession(t *testing.T, env envx.EnvX) *SqlSession {
-	t.Helper()
+func (sm *SessionManager) Cleanup(session *EphemeralSession) error {
+	session.Close()
+	cleanupOnce, ok := sm.sessions[session]
+	if !ok {
+		// session doesn't exist and has likely already been cleaned up
+		return nil
+	}
+
+	var cleanupErr error
+	cleanupOnce.Do(func() {
+		dropDbQ := fmt.Sprintf("drop database %s;", session.Params.Database)
+		if _, err := sm.db.Exec(dropDbQ); err != nil {
+			cleanupErr = fmt.Errorf("failed to drop database %s: %w", session.Params.Database, err)
+		}
+		dropRoleQ := fmt.Sprintf("drop role %s;", session.Params.User)
+		if _, err := sm.db.Exec(dropRoleQ); err != nil {
+			cleanupErr = fmt.Errorf("failed to drop role %s: %w", session.Params.User, err)
+		}
+		delete(sm.sessions, session)
+	})
+	return cleanupErr
+}
+
+func NewSessionManager(env envx.EnvX) (*SessionManager, error) {
 	connParams, err := LoadTestConnectionParams(env)
 	if err != nil {
-		t.Errorf("unable to create connection params: %#v", err)
-		return &SqlSession{}
+		return nil, fmt.Errorf("unable to create connection params: %w", err)
 	}
 	db, err := openLegacyConnection(connParams.ConnectionString(), "pgx")
 	if err != nil {
-		t.Errorf("unable to open legacy connection: %v", err)
-		return &SqlSession{}
+		return nil, fmt.Errorf("unable to open legacy connection: %w", err)
 	}
-	return &SqlSession{
+	sm :=  &SessionManager{
 		Host: connParams.Host,
 		Port: connParams.Port,
-		t: t,
 		db: db,
+		sessions: make(map[*EphemeralSession]sync.Once),
 	}
+	return sm, nil
+}
+
+func (sm *SessionManager) Close() {
+	// close and cleanup all ephemeral sessions
+	for session, _ := range sm.sessions {
+		session.Close()
+		sm.Cleanup(session)
+	}
+	sm.db.Close()
+}
+
+func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
+
+	entry := randomEntry()
+	password := "test"
+
+	params := pg.ConnectionParams{
+		Host: sm.Host,
+		Port: sm.Port,
+		Database: entry,
+		User: entry,
+		Pass: password,
+	}
+
+	session := &EphemeralSession{
+		Params: params,
+	}
+
+	createRoleQ := fmt.Sprintf("create role %s with login password '%s';", params.User, params.Pass)
+	if _, err := sm.db.Exec(createRoleQ); err != nil {
+		return nil, fmt.Errorf("failed to create role %s: %w", params.User, err)
+	}
+
+	// Create user and database from the same name
+	createDbQ := fmt.Sprintf("create database %s owner %s;", params.Database, params.User)
+	if _, err := sm.db.Exec(createDbQ); err != nil {
+		return nil, fmt.Errorf("failed to create database %s: %w", params.Database, err)
+	}
+
+	// register newly created session on this SessionManager with a close handle
+	var closeOnce sync.Once
+	sm.sessions[session] = closeOnce
+
+	// Set up legacy connection for running migrations
+	migrationDb, err := openLegacyConnection(params.ConnectionString(), "pgx")
+	if err != nil {
+		sm.Cleanup(session)
+		return nil, fmt.Errorf("failed to open connection for migrations: %w", err)
+	}
+	defer migrationDb.Close()
+
+	// Perform migrations
+	// Convention: migrations folder always exists one level up from db tests.
+	provider := pgmigrate.FileMigrationProvider{Directory: "../migrations"}
+	migrations := provider.GetMigrations()
+	_, err = pgmigrate.RunMigrations(migrationDb, migrations, 0)
+	if err != nil {
+		sm.Cleanup(session)
+		return nil, fmt.Errorf("unable to complete some or all migrations: %w", err)
+	}
+
+	return session, nil
 }
 
 func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
@@ -82,94 +173,26 @@ func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
 	return params, err.Error()
 }
 
-
-func (parentSession *SqlSession) Close() {
-	if parentSession.db != nil {
-		parentSession.db.Close()
-	}
-}
-
-func (parentSession *SqlSession) EphemeralSession(
-	t testing.TB,
-	block func(conn *pgx.Conn),
-) {
-	t.Helper()
-
-	parentSession.EphemeralConnection(t, func(params pg.ConnectionParams) {
-		// Create pgx connection for using in the test
-		conn, err := pgx.Connect(context.Background(), params.ConnectionString())
+func (sm *SessionManager) Run(t *testing.T, msg string, testFn func(*testing.T, *pgx.Conn))  {
+	t.Run(msg, func(t *testing.T) {
+		// Create session
+		session, err := sm.NewEphemeralSession()
 		if err != nil {
-			t.Errorf("failed to open pgx connection %s", err)
+			t.Errorf("failed to create EphemeralSession: %v", err)
 			return
 		}
-		defer conn.Close(context.Background())
+		defer sm.Cleanup(session)
 
-		block(conn)
+		// Connect to session
+		conn, err := session.Connect()
+		if err != nil {
+			t.Errorf("failed to connect to EphemeralSession: %v", err)
+		}
+		defer session.Close()
+
+		// Run test
+		testFn(t, conn)
 	})
-}
-
-func (parentSession *SqlSession) EphemeralConnection(
-	t testing.TB,
-	block func(pg.ConnectionParams),
-) {
-	t.Helper()
-
-	user := randomUser()
-	password := "test"
-
-	createRoleQ := fmt.Sprintf("create role %s with login password '%s';", user, password)
-	if _, err := parentSession.db.Exec(createRoleQ); err != nil {
-		t.Errorf("failed to create role %s: %s", user, err)
-		return
-	}
-
-	// Create user and database from the same name
-	createDbQ := fmt.Sprintf("create database %s owner %s;", user, user)
-	if _, err := parentSession.db.Exec(createDbQ); err != nil {
-		t.Errorf("failed to create database %s: %s", user, err)
-		return
-	}
-
-	defer func() {
-		dropDbQ := fmt.Sprintf("drop database %s;", user)
-		if _, err := parentSession.db.Exec(dropDbQ); err != nil {
-			t.Errorf("failed to drop database %s: %s", user, err)
-			return
-		}
-		dropRoleQ := fmt.Sprintf("drop role %s;", user)
-		if _, err := parentSession.db.Exec(dropRoleQ); err != nil {
-			t.Errorf("failed to drop role %s: %s", user, err)
-			return
-		}
-	}()
-
-	params := pg.ConnectionParams{
-		Host: parentSession.Host,
-		Port: parentSession.Port,
-		Database: user,
-		User: user,
-		Pass: password,
-	}
-
-	// Set up legacy connection for running migrations
-	migrationDb, err := openLegacyConnection(params.ConnectionString(), "pgx")
-	if err != nil {
-		t.Errorf("failed to open connection for migrations %s", err)
-		return
-	}
-	defer migrationDb.Close()
-
-	// Perform migrations
-	// Convention: migrations folder always exists one level up from db tests.
-	provider := pgmigrate.FileMigrationProvider{Directory: "../migrations"}
-	migrations := provider.GetMigrations()
-	_, err = pgmigrate.RunMigrations(migrationDb, migrations, 0)
-	if err != nil {
-		t.Errorf("unable to complete some or all migrations: %v", err)
-		return
-	}
-
-	block(params)
 }
 
 func openLegacyConnection(connStr string, driver string) (db *sql.DB, err error) {
@@ -181,7 +204,7 @@ func openLegacyConnection(connStr string, driver string) (db *sql.DB, err error)
 }
 
 // Generates user/DB name in the form of "test_[a-z]7" e.g. test_hqbrluz
-func randomUser() string {
+func randomEntry() string {
 	chars := "abcdefghijklmnopqrstuvwxyz"
 	length := 7
 	b := make([]byte, length)
