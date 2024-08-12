@@ -144,6 +144,7 @@ func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
 	migrations := provider.GetMigrations()
 	_, err = pgmigrate.RunMigrations(migrationDb, migrations, 0)
 	if err != nil {
+		migrationDb.Close()
 		sm.Cleanup(session)
 		return nil, fmt.Errorf("unable to complete some or all migrations: %w", err)
 	}
