@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// Convenient wrapper around http.Server.ListenAndServe which takes a context and handles shutdown
+// if the context is done.
 func ListenAndServe(
 	ctx context.Context,
 	server *http.Server,
@@ -38,7 +40,30 @@ func ListenAndServe(
 	return errChan
 }
 
+type ReadyCheckConfig struct {
+	// How long a ready check is allowed to take before a timeout
+	ReadyCheckTimeout time.Duration
+	// How long to wait before a new ready check is fired
+	ReadyTickInterval time.Duration
+	// How long to wait in total for a successful ready check
+	ReadyTickTimeout time.Duration
+	// Ready check to perform
+	ReadyCheck func(context.Context) bool
+}
+
 func WaitForReady(
+	ctx context.Context,
+	cnf ReadyCheckConfig,
+) error {
+	ctx, _ = context.WithTimeout(ctx, cnf.ReadyTickTimeout)
+	ticker := time.NewTicker(cnf.ReadyTickInterval)
+	select {
+	case err := <- waitForReadyChan(ctx, ticker, cnf.ReadyCheckTimeout, cnf.ReadyCheck):
+		return err
+	}
+}
+
+func waitForReadyChan(
 	ctx context.Context,
 	ticker *time.Ticker,
 	timeout time.Duration,
