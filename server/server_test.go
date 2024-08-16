@@ -38,19 +38,19 @@ func TestServer(t *testing.T) {
 	})
 
 	t.Run("WaitForReady should return nil error when check succeeds", func (t *testing.T) {
-		ctx, _ := context.WithTimeout(ctx, 50 * time.Millisecond)
-		ticker := time.NewTicker(10 * time.Millisecond)
-		timeout := 10 * time.Millisecond
 		var checks atomic.Int32
-		readyCheck := func(ctx context.Context) bool {
-			checks.Add(1)
-			return true
+		cnf := ReadyCheckConfig{
+			ReadyCheckTimeout: 10 * time.Millisecond,
+			ReadyTickInterval: 10 * time.Millisecond,
+			ReadyTickTimeout: 50 * time.Millisecond,
+			ReadyCheck: func(ctx context.Context) bool {
+				checks.Add(1)
+				return true
+			},
 		}
-		select {
-		case err := <-WaitForReady(ctx, ticker, timeout, readyCheck):
-			if err != nil {
-				t.Errorf("ready check failed: %v", err)
-			}
+		err := WaitForReady(ctx, cnf)
+		if err != nil {
+			t.Errorf("ready check failed: %v", err)
 		}
 		if checks.Load() != 1 {
 			t.Errorf("checks: got %d, want %d", checks.Load(), 1)
@@ -58,19 +58,19 @@ func TestServer(t *testing.T) {
 	})
 
 	t.Run("WaitForReady should return DeadlineExceeded error when all checks failed", func (t *testing.T) {
-		ctx, _ := context.WithTimeout(ctx, 50 * time.Millisecond)
-		ticker := time.NewTicker(10 * time.Millisecond)
-		timeout := 10 * time.Millisecond
 		var checks atomic.Int32
-		readyCheck := func(ctx context.Context) bool {
-			checks.Add(1)
-			return false
+		cnf := ReadyCheckConfig{
+			ReadyCheckTimeout: 10 * time.Millisecond,
+			ReadyTickInterval: 10 * time.Millisecond,
+			ReadyTickTimeout: 55 * time.Millisecond,
+			ReadyCheck: func(ctx context.Context) bool {
+				checks.Add(1)
+				return false
+			},
 		}
-		select {
-		case err := <-WaitForReady(ctx, ticker, timeout, readyCheck):
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Errorf("ready check failed: %v", err)
-			}
+		err := WaitForReady(ctx, cnf)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("ready check failed: %v", err)
 		}
 		if checks.Load() != 5 {
 			t.Errorf("checks: got %d, want %d", checks.Load(), 5)

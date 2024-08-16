@@ -91,11 +91,15 @@ func NewSessionManager(env envx.EnvX) (*SessionManager, error) {
 
 func (sm *SessionManager) Close() {
 	// close and cleanup all ephemeral sessions
-	for session, _ := range sm.sessions {
-		session.Close()
-		sm.Cleanup(session)
+	if sm.sessions != nil {
+		for session, _ := range sm.sessions {
+			session.Close()
+			sm.Cleanup(session)
+		}
 	}
-	sm.db.Close()
+	if sm.db != nil {
+		sm.db.Close()
+	}
 }
 
 func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
