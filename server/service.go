@@ -47,8 +47,8 @@ func (s *Service) Start(ctx context.Context) {
 		case err := <- ListenAndServe(ctx, s.server):
 			if err != nil && err != http.ErrServerClosed {
 				s.err = err
+				close(s.doneChan)
 			}
-			close(s.doneChan)
 		}
 	}()
 
