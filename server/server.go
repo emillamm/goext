@@ -53,12 +53,15 @@ type ReadyCheckConfig struct {
 
 func WaitForReady(
 	ctx context.Context,
-	cnf ReadyCheckConfig,
+	readyCheckTimeout time.Duration,
+	readyTickInterval time.Duration,
+	readyTickTimeout time.Duration,
+	readyCheck func(context.Context) bool,
 ) error {
-	ctx, _ = context.WithTimeout(ctx, cnf.ReadyTickTimeout)
-	ticker := time.NewTicker(cnf.ReadyTickInterval)
+	ctx, _ = context.WithTimeout(ctx, readyTickTimeout)
+	ticker := time.NewTicker(readyTickInterval)
 	select {
-	case err := <- waitForReadyChan(ctx, ticker, cnf.ReadyCheckTimeout, cnf.ReadyCheck):
+	case err := <- waitForReadyChan(ctx, ticker, readyCheckTimeout, readyCheck):
 		return err
 	}
 }

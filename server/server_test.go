@@ -39,16 +39,14 @@ func TestServer(t *testing.T) {
 
 	t.Run("WaitForReady should return nil error when check succeeds", func (t *testing.T) {
 		var checks atomic.Int32
-		cnf := ReadyCheckConfig{
-			ReadyCheckTimeout: 10 * time.Millisecond,
-			ReadyTickInterval: 10 * time.Millisecond,
-			ReadyTickTimeout: 50 * time.Millisecond,
-			ReadyCheck: func(ctx context.Context) bool {
-				checks.Add(1)
-				return true
-			},
+		readyCheckTimeout := 10 * time.Millisecond
+		readyTickInterval := 10 * time.Millisecond
+		readyTickTimeout := 55 * time.Millisecond
+		readyCheck := func(ctx context.Context) bool {
+			checks.Add(1)
+			return true
 		}
-		err := WaitForReady(ctx, cnf)
+		err := WaitForReady(ctx, readyCheckTimeout, readyTickInterval, readyTickTimeout, readyCheck)
 		if err != nil {
 			t.Errorf("ready check failed: %v", err)
 		}
@@ -59,16 +57,14 @@ func TestServer(t *testing.T) {
 
 	t.Run("WaitForReady should return DeadlineExceeded error when all checks failed", func (t *testing.T) {
 		var checks atomic.Int32
-		cnf := ReadyCheckConfig{
-			ReadyCheckTimeout: 10 * time.Millisecond,
-			ReadyTickInterval: 10 * time.Millisecond,
-			ReadyTickTimeout: 55 * time.Millisecond,
-			ReadyCheck: func(ctx context.Context) bool {
-				checks.Add(1)
-				return false
-			},
+		readyCheckTimeout := 10 * time.Millisecond
+		readyTickInterval := 10 * time.Millisecond
+		readyTickTimeout := 55 * time.Millisecond
+		readyCheck := func(ctx context.Context) bool {
+			checks.Add(1)
+			return false
 		}
-		err := WaitForReady(ctx, cnf)
+		err := WaitForReady(ctx, readyCheckTimeout, readyTickInterval, readyTickTimeout, readyCheck)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("ready check failed: %v", err)
 		}

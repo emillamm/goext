@@ -1,8 +1,8 @@
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/emillamm/envx v0.1.7 h1:gHYUaGo96VyiRLZhTC8QujSNVVG7m0loMXsAZsa54/U=
-github.com/emillamm/envx v0.1.7/go.mod h1:oBeIVATgr0HXNunxkInv2PRnnDCpN7r0sF68z8lf/5Y=
+github.com/emillamm/envx v0.1.8 h1:XrR1G6bWoL6JkhlT8o+DOAPMHVTab5l7LmeQJpJaflQ=
+github.com/emillamm/envx v0.1.8/go.mod h1:oBeIVATgr0HXNunxkInv2PRnnDCpN7r0sF68z8lf/5Y=
 github.com/emillamm/pgmigrate v0.0.10 h1:G31OZqRU6MLQTWQAYtm3T824xcA952Tb61bpl6KeWdg=
 github.com/emillamm/pgmigrate v0.0.10/go.mod h1:aluLgXuVp6a7pDDXiX4FeE7r1POhqAeZ7F3GXZPFuGA=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
