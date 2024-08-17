@@ -3,7 +3,7 @@ module github.com/emillamm/goext
 go 1.22.3
 
 require (
-	github.com/emillamm/envx v0.1.7
+	github.com/emillamm/envx v0.1.8
 	github.com/emillamm/pgmigrate v0.0.10
 	github.com/jackc/pgx/v5 v5.6.0
 )

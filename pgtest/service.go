@@ -70,7 +70,12 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) Stop() {
-	close(s.doneChan)
+	select {
+	case <-s.doneChan:
+		return
+	default:
+		close(s.doneChan)
+	}
 }
 
 // Return environment with overwritten values of the new session
