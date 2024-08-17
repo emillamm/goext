@@ -18,34 +18,26 @@ type Service struct {
 	HttpPort int
 	Mux *http.ServeMux
 	PostShutdownHook func()
-	// How long a ready check is allowed to take before a timeout
-	ReadyCheckTimeout time.Duration
-	// How long to wait before a new ready check is fired
-	ReadyTickInterval time.Duration
-	// How long to wait in total for a successful ready check
-	ReadyTickTimeout time.Duration
-	// How long to wait for shutdown
-	ShutdownTimeout time.Duration
-	// Ready check to perform
-	ReadyCheck func(context.Context) bool
+	ReadyCheckTimeout time.Duration 	// How long a ready check is allowed to take before a timeout
+	ReadyTickInterval time.Duration 	// How long to wait before a new ready check is fired
+	ReadyTickTimeout time.Duration 		// How long to wait in total for a successful ready check
+	ShutdownTimeout time.Duration 		// How long to wait for shutdown
+	ReadyCheck func(context.Context) bool 	// Ready check to perform
 	// private
+	baseUrl string
 	doneChan chan struct{}
 	doneWG sync.WaitGroup
 	err error
 }
 
-func NewService(
-	env envx.EnvX,
-	//server *http.Server,
-	//postShutdownHook func(),
-	//readyCheckConfig ReadyCheckConfig,
-	//shutdownTimeout time.Duration,
-) (*Service, error) {
+func NewService(env envx.EnvX) (*Service, error) {
 
 	var errs envx.Errors
 
 	host := env.Getenv(
 		"HTTP_HOST", envx.Default("localhost"))
+	hostScheme := env.Getenv(
+		"HTTP_HOST_SCHEME", envx.Default("http"))
 	port := env.AsInt().Getenv(
 		"HTTP_PORT", envx.Default[int](5001), envx.Observe[int](&errs))
 	readyCheckPath := env.Getenv(
@@ -63,7 +55,8 @@ func NewService(
 		return nil, err
 	}
 
-	readyCheck := defaultReadyCheck(fmt.Sprintf("%s:%d/%s", host, port, readyCheckPath))
+	baseUrl := fmt.Sprintf("%s://%s:%d", hostScheme, host, port)
+	readyCheck := defaultReadyCheck(fmt.Sprintf("%s/%s", baseUrl, readyCheckPath))
 	mux := http.NewServeMux()
 
 	return &Service{
@@ -76,6 +69,7 @@ func NewService(
 		ReadyTickTimeout: readyTickTimeout,
 		ShutdownTimeout: shutdownTimeout,
 		ReadyCheck: readyCheck,
+		baseUrl: baseUrl,
 		doneChan: make(chan struct{}),
 	}, nil
 }
@@ -117,17 +111,30 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) Stop() {
-	close(s.doneChan)
+	select {
+	case <-s.doneChan:
+		return
+	default:
+		close(s.doneChan)
+	}
 }
 
 func (s *Service) WaitForReady() {
 	select {
 	case <-s.doneChan:
-		// short circuit if server is done
-		break
+		// short circuit if server is already done
+		return
 	default:
-		// perform ready check
-		if err := WaitForReady(context.Background(), s.ReadyCheckTimeout, s.ReadyTickInterval, s.ReadyTickTimeout, s.ReadyCheck); err != nil {
+		break
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	select {
+	case <-s.doneChan:
+		// if server becomes done, stop the ongoing ready check by cancelling the context
+		cancel()
+	case err := <-waitForReadyChan(ctx, s.ReadyCheckTimeout, s.ReadyTickInterval, s.ReadyTickTimeout, s.ReadyCheck):
+		if err != nil {
 			s.err = fmt.Errorf("ready check failed: %w", err)
 		}
 	}
@@ -147,6 +154,10 @@ func (s *Service) Handle(pattern string, handler http.Handler) {
 
 func (s *Service) PostShutdown(postShutdownHook func()) {
 	s.PostShutdownHook = postShutdownHook
+}
+
+func (s *Service) BaseUrl() string {
+	return s.baseUrl
 }
 
 func defaultReadyCheck(url string) func(context.Context) bool {

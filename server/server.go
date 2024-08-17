@@ -58,20 +58,21 @@ func WaitForReady(
 	readyTickTimeout time.Duration,
 	readyCheck func(context.Context) bool,
 ) error {
-	ctx, _ = context.WithTimeout(ctx, readyTickTimeout)
-	ticker := time.NewTicker(readyTickInterval)
 	select {
-	case err := <- waitForReadyChan(ctx, ticker, readyCheckTimeout, readyCheck):
+	case err := <- waitForReadyChan(ctx, readyCheckTimeout, readyTickInterval, readyTickTimeout, readyCheck):
 		return err
 	}
 }
 
 func waitForReadyChan(
 	ctx context.Context,
-	ticker *time.Ticker,
-	timeout time.Duration,
-	readyCheck func(context.Context)bool,
+	readyCheckTimeout time.Duration,
+	readyTickInterval time.Duration,
+	readyTickTimeout time.Duration,
+	readyCheck func(context.Context) bool,
 ) <-chan error {
+	ctx, _ = context.WithTimeout(ctx, readyTickTimeout)
+	ticker := time.NewTicker(readyTickInterval)
 	errChan := make(chan error)
 	doneChan := make(chan struct{})
 	closeDoneOnce := sync.OnceFunc(func() {
@@ -85,7 +86,7 @@ func waitForReadyChan(
 				errChan <- fmt.Errorf("context is done: %w", context.Cause(ctx))
 				break
 			case <-ticker.C: // it is time to perform a readycheck
-				ctx, _ := context.WithTimeout(ctx, timeout)
+				ctx, _ := context.WithTimeout(ctx, readyCheckTimeout)
 				go func() {
 					if (readyCheck(ctx)) {
 						closeDoneOnce()
