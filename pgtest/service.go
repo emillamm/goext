@@ -62,7 +62,9 @@ func (s *Service) Start(ctx context.Context) {
 		case <-s.doneChan:
 			break
 		}
-		s.sm.Close()
+		if s.sm != nil {
+			s.sm.Close()
+		}
 		s.session = nil // set to nil as we don't want Env() to return values related to this session anymore
 		s.doneWG.Done() // mark service as done
 	}()
