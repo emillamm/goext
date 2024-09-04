@@ -91,103 +91,6 @@ func (k *KafkaClient) RegisterConsumer(
 	)
 }
 
-// Enable consumption of topic if it was previously disabled. This means unpausing
-// the consumer if it was disabled after the client was started or adding the consumer
-// (for the first time) if it was disabled before the client was started.
-// If the consumer is already enabled, this is a no-op.
-// If topic was never registered, this will return ErrConsumerTopicDoesntExist.
-// Note: The call to unpause consumption (after client is started) is performed
-// async and does not return an error. Hence it might take a while to complete or
-// not complete at all. If the context expires before the action completes,
-// it might lead to inconsistent behaviour.
-//func (k *KafkaClient) EnableConsumerTopic(ctx context.Context, topic string) error {
-//	enable := func() error {
-//		if k.IsStarted() {
-//			k.underlying.ResumeFetchTopics(topic)
-//			return nil
-//		} else {
-//			// no-op if client is not yet started
-//			return nil
-//		}
-//	}
-//	onSuccess := func() {
-//		k.startConsuming()
-//	}
-//	return k.consumerRegistry.SetEnabled(ctx, topic, true, enable, onSuccess)
-//}
-
-// TODO consider if this is the best solution given the potential for inconsistencies??
-// (use sync and callback)
-// Disable consumption of topic. This means pausing the consumer if this method is called
-// after the client is started or excluding the ConsumerOpt(topic) when creating the *kgo.Client
-// for the first time.
-// If the consumer is already disabled, this is a no-op.
-// If topic was never registered, this will return ErrConsumerTopicDoesntExist.
-// Note: The call to pause consumption (after client is started) is performed
-// async and does not return an error. Hence it might take a while to complete or
-// not complete at all. If the context expires before the action completes,
-// it might lead to inconsistent behaviour.
-//func (k *KafkaClient) DisableConsumerTopic(ctx context.Context, topic string) error {
-//	disable := func() error {
-//		if k.IsStarted() {
-//			k.underlying.PauseFetchTopics(topic)
-//			return nil
-//		} else {
-//			// no-op if client is not yet started.
-//			// Topic will not be included when client starts
-//			// and enabled is set to false.
-//			return nil
-//		}
-//	}
-//	onSuccess := func() {
-//		// no-op consumers were disabled. 
-//	}
-//	return k.consumerRegistry.SetEnabled(ctx, topic, false, disable, onSuccess)
-//}
-
-// TODO use new approach where we pass an sync operation to enable/disable and return a chan error
-// need new documentation
-func (k *KafkaClient) EnableConsumerTopic(ctx context.Context, topic string) error {
-	return <-k.consumerRegistry.SetEnabled(ctx, topic, true, k.SyncConsumerTopics)
-}
-func (k *KafkaClient) DisableConsumerTopic(ctx context.Context, topic string) error {
-	return <-k.consumerRegistry.SetEnabled(ctx, topic, false, k.SyncConsumerTopics)
-}
-
-func (k *KafkaClient) SyncConsumerTopics() error {
-	currentPausedTopics := k.underlying.PauseFetchTopics() // no args returns all paused topics
-	allTopics := mapset.NewSet[string](k.consumerRegistry.ConsumerTopics()...)
-	enabledTopics := mapset.NewSet[string](k.consumerRegistry.EnabledConsumerTopics()...)
-	pausedTopics := mapset.NewSet[string](currentPausedTopics...)
-	topicsToPause := allTopics.Difference(enabledTopics).Difference(pausedTopics)
-	topicsToResume := enabledTopics.Intersect(pausedTopics)
-	k.underlying.PauseFetchTopics(topicsToPause.ToSlice()...)
-	k.underlying.ResumeFetchTopics(topicsToResume.ToSlice()...)
-	return nil
-}
-
-// Produce a record to the give topic.
-// If the provided context expures, the method will fail and return an error.
-// If the client is closed, an error will also be returned.
-// If the client is currently terminating gracefully, publishing will be allowed
-// for as long as the underlying client is alive.
-func (k *KafkaClient) PublishRecord(
-	ctx context.Context,
-	topic string,
-	record *kgo.Record,
-) (err error) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	k.underlying.Produce(ctx, record, func(_ *kgo.Record, produceErr error) {
-		defer wg.Done()
-		if produceErr != nil {
-			err = fmt.Errorf("failed to produce record: %w", produceErr)
-		}
-	})
-	wg.Wait()
-	return
-}
-
 // Set client consumer group. Must be called before client is started otherwise it will panic.
 func (k *KafkaClient) SetGroup(group string) {
 	if k.IsStarted() {
@@ -253,19 +156,66 @@ func (k *KafkaClient) Start() (errs <-chan error) {
 	return
 }
 
-//// Stop the poll, process, commit loop.
-//// Calling this when the client is closed or not actively consuming will not have an effect.
-//// Clients should generally not be stopped and then started again as it could lead to unexpected consequences, such as 
-//// the new poll being started before all records from the previous poll were processed.
-//// Calling client.Close() will also stop consumption which is should be considered the preferred approach to stopping consumption.
-//func (k *KafkaClient) StopConsuming() {
-//	select {
-//	case <-k.consumerDoneChan:
-//		return
-//	default:
-//		close(k.consumerDoneChan)
-//	}
-//}
+// Enable consumption of topic if it was previously disabled. This means resuming
+// the consumer if it was disabled after the client was started or adding the consumer
+// (for the first time) if it was disabled before the client was started.
+// If the consumer is already enabled, this is a no-op.
+// If topic was never registered, this will return ErrConsumerTopicDoesntExist.
+// If requires remote changes, a call to SyncConsumerTopics() is made.
+// If the sync operation times out (context expires), the registry might be out of sync
+// with the broker. An error is returned in this case and it is up to the caller to 
+// handle the error by retrying the sync operation for example.
+func (k *KafkaClient) EnableConsumerTopic(ctx context.Context, topic string) error {
+	return <-k.consumerRegistry.SetEnabled(ctx, topic, true, k.SyncConsumerTopics)
+}
+
+// Disable consumption of topic if it was previously enabled. This means pausing
+// the consumer if it was disabled after the client was started or removing the consumer
+// if it was disabled before the client was started.
+// If the consumer is already disabled, this is a no-op.
+// If topic was never registered, this will return ErrConsumerTopicDoesntExist.
+// If requires remote changes, a call to SyncConsumerTopics() is made.
+// If the sync operation times out (context expires), the registry might be out of sync
+// with the broker. An error is returned in this case and it is up to the caller to 
+// handle the error by retrying the sync operation for example.
+func (k *KafkaClient) DisableConsumerTopic(ctx context.Context, topic string) error {
+	return <-k.consumerRegistry.SetEnabled(ctx, topic, false, k.SyncConsumerTopics)
+}
+
+// Pause/resume consumption of topics in Kafka according to the status of the consumers in the registry.
+func (k *KafkaClient) SyncConsumerTopics() error {
+	currentPausedTopics := k.underlying.PauseFetchTopics() // no args returns all paused topics
+	allTopics := mapset.NewSet[string](k.consumerRegistry.ConsumerTopics()...)
+	enabledTopics := mapset.NewSet[string](k.consumerRegistry.EnabledConsumerTopics()...)
+	pausedTopics := mapset.NewSet[string](currentPausedTopics...)
+	topicsToPause := allTopics.Difference(enabledTopics).Difference(pausedTopics)
+	topicsToResume := enabledTopics.Intersect(pausedTopics)
+	k.underlying.PauseFetchTopics(topicsToPause.ToSlice()...)
+	k.underlying.ResumeFetchTopics(topicsToResume.ToSlice()...)
+	return nil
+}
+
+// Produce a record to the give topic.
+// If the provided context expures, the method will fail and return an error.
+// If the client is closed, an error will also be returned.
+// If the client is currently terminating gracefully, publishing will be allowed
+// for as long as the underlying client is alive.
+func (k *KafkaClient) PublishRecord(
+	ctx context.Context,
+	topic string,
+	record *kgo.Record,
+) (err error) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	k.underlying.Produce(ctx, record, func(_ *kgo.Record, produceErr error) {
+		defer wg.Done()
+		if produceErr != nil {
+			err = fmt.Errorf("failed to produce record: %w", produceErr)
+		}
+	})
+	wg.Wait()
+	return
+}
 
 // No-op if client is already closed. Otherwise stop consumption and close underlying client.
 // When the client is fully closed, ErrClientClosed will be returned via the error channel.
@@ -314,22 +264,12 @@ func (k *KafkaClient) IsClosed() bool {
 	}
 }
 
-//// Returns true if the client is actively polling, false otherwise.
-//func (k *KafkaClient) IsConsuming() bool {
-//	select {
-//	case <-k.consumerDoneChan:
-//		return false
-//	default:
-//		return true
-//	}
-//}
-
 // Wait for client to be fully closed
 func (k *KafkaClient) WaitForDone() {
 	<-k.doneWaitChan
 }
 
-// Start the poll, process, commit loop.
+// Reset consumer status and start the poll, process, commit loop.
 // Calling this if the client is already consuming, will not have an effect.
 // Calling this if the client is closed, will not have an effect.
 func (k *KafkaClient) startConsuming() {

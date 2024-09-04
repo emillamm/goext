@@ -74,54 +74,14 @@ func (c *ConsumerRegistry) AddConsumer(
 	return nil
 }
 
-// TODO
-// 1. Return a channel of error as a callback to know whether the action completed successfully
-// 2. Add a new method to "sync" the map based on a list of enabled topics. This ensures consistency.
 // Set enable/disable on consumer. Return ErrConsumerTopicDoesntExist if it doesn't exist.
-// The enabled flag and action is eventually consistent as the action completes async.
-// If the action eventually returns an error, the value of enabled will not be changed.
-// If the provided context expires before the action completed, the goroutine is aborted. This
-// might lead to inconsistencies given the unknown outcome of action. I.e. since it is a network call,
-// it might still complete successfully from the perspective of the broker. 
-// onSuccess is called only if the action doesn't return an error and the context hasn't expired.
-//func (c *ConsumerRegistry) SetEnabled(
-//	ctx context.Context,
-//	topic string,
-//	enabled bool,
-//	action func()error,
-//) <-chan error {
-//	if err := ctx.Err(); err != nil {
-//		return err
-//	}
-//	c.mutex.Lock()
-//	defer c.mutex.Unlock()
-//	consumer, ok := c.consumers[topic]
-//	if !ok {
-//		return ErrConsumerTopicDoesntExist
-//	}
-//	if consumer.enabled == enabled {
-//		return nil // no-op
-//	}
-//	// perform action async
-//	actionErrChan := make(chan error)
-//	resultErrChan := make(chan error)
-//	go func() {
-//		actionErrChan <-action()
-//	}()
-//	go func() {
-//		select {
-//		case err := <-actionErrChan:
-//			if err == nil {
-//				consumer.enabled = enabled
-//			}
-//		case <-ctx.Done():
-//			break
-//		}
-//	}()
-//	return nil
-//}
-
-// mutex will remain locked for as long as it takes for the sync operation to finish or for the context to expire
+// The method returns an error channel that will receive an error or nil when the sync op finishes.
+// If an error is received, the broker might not be in sync with the consumer registry and it is up to
+// the caller remediate by syncronizing manually.
+// The provided context can be used to set a deadline for the sync op. If the context expires,
+// the corresponding ctx.Err() will be sent to the error channel.
+// The mutex will remain locked for as long as it takes for the sync operation to finish or for the context to expire
+// which means that no changes can be made to the registry in the meantime.
 func (c *ConsumerRegistry) SetEnabled(
 	ctx context.Context,
 	topic string,

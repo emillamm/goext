@@ -14,7 +14,6 @@ import (
 
 func TestKafkaClient(t *testing.T) {
 
-	now := time.Now()
 	ctx := context.Background()
 
 	t.Run("", func(t *testing.T) {
@@ -24,16 +23,11 @@ func TestKafkaClient(t *testing.T) {
 		ctx, _ = context.WithTimeout(ctx, 10 * time.Second)
 		client, err := NewKafkaClient(ctx, os.Getenv)
 		if err != nil { t.Fatal(err) }
-		println(fmt.Sprintf("timecheck 1 %v", time.Since(now).Milliseconds()))
-
-		//doneChan := make(chan struct{})
 
 		ctx, _ = context.WithTimeout(ctx, 7 * time.Second)
 		verifier := newRecordVerifier[string](ctx, "a")
 
 		err = client.RegisterConsumer("test-topic-11", 0, false, func(record *ConsumeRecord) {
-			//println("record received")
-			println(fmt.Sprintf("record received %v", time.Since(now).Milliseconds()))
 			verifier.receive(string(record.Underlying.Value))
 			record.Ack()
 		})
@@ -41,21 +35,17 @@ func TestKafkaClient(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		println(fmt.Sprintf("timecheck 2 %v", time.Since(now).Milliseconds()))
-
 		group := randomGroup()
-		println(group)
 		client.SetGroup(group)
 
 		// start
 		errs := client.Start()
-		println(fmt.Sprintf("timecheck 3 %v", time.Since(now).Milliseconds()))
 		go func() {
 			for err := range errs {
-				t.Error(err)
 				if errors.Is(err, ErrClientClosed) {
-					//close(doneChan)
 					return
+				} else {
+					t.Error(err)
 				}
 			}
 		}()
@@ -76,11 +66,9 @@ func TestKafkaClient(t *testing.T) {
 			}
 		}
 
-		// TODO add solution to this
-		// Add graceful timeout to client.Close()
 		client.CloseGracefylly(ctx)
 		client.WaitForDone()
-		//<-doneChan
+		time.Sleep(10 * time.Millisecond) // allow ErrClientClosed to arrive
 	})
 
 }
@@ -115,13 +103,11 @@ func newRecordVerifier[R comparable](ctx context.Context, expectedRecords ...R) 
 				}
 			}
 		}
-		println("end")
 	}()
 	return v
 }
 
 func (v *recordVerifier[R]) receive(record R) {
-	println(fmt.Sprintf("received %v", record))
 	v.mutex.Lock()
 	delete(v.records, record)
 	v.mutex.Unlock()
