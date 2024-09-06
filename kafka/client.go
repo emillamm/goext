@@ -32,12 +32,19 @@ type KafkaClient struct {
 	startedChan chan struct{}
 	doneChan chan struct{}
 	doneWaitChan chan struct{}
+	startOffset kgo.Offset
 }
 
 // Create a new kafka client that will shutdown (not gracefully) if the context expires.
 // In order to shutdown gracefully, i.e. finish processing and committing fetched records,
 // call client.CloseGracefully(ctx) with a context that dictates the graceful shutdown period.
 func NewKafkaClient(ctx context.Context, env envx.EnvX) (client *KafkaClient, err error) {
+
+	// Initialize offset based on value of "KAFKA_CONSUMER_START_FROM"
+	startOffset, err := getConsumerStartOffset(env)
+	if err != nil {
+		return nil, err
+	}
 
 	client = &KafkaClient{
 		consumerRegistry: kafkahelper.NewConsumerRegistry(),
@@ -46,6 +53,7 @@ func NewKafkaClient(ctx context.Context, env envx.EnvX) (client *KafkaClient, er
 		startedChan: make(chan struct{}),
 		doneChan: make(chan struct{}),
 		doneWaitChan: make(chan struct{}),
+		startOffset: startOffset,
 	}
 
 	// async shutdown
@@ -57,10 +65,6 @@ func NewKafkaClient(ctx context.Context, env envx.EnvX) (client *KafkaClient, er
 		case <-client.doneChan:
 			break
 		}
-
-		//// make sure that we are no longer consuming
-		//client.StopConsuming()
-
 		// close underlying client
 		client.underlying.Close()
 		// signal that wait is over and client is now closed
@@ -140,7 +144,7 @@ func (k *KafkaClient) Start() (errs <-chan error) {
 
 	// create underlying *kgo.Client
 	consumeTopics := k.consumerRegistry.EnabledConsumerTopics()
-	underlying, err := LoadKgoClient(consumeTopics, k.group)
+	underlying, err := LoadKgoClient(consumeTopics, k.group, k.startOffset)
 	if err != nil {
 		k.errs <- fmt.Errorf("failed to initialize *kgo.Client with error: %w", err)
 		k.Close()
@@ -267,6 +271,24 @@ func (k *KafkaClient) IsClosed() bool {
 // Wait for client to be fully closed
 func (k *KafkaClient) WaitForDone() {
 	<-k.doneWaitChan
+}
+
+// Read value of KAFKA_CONSUMER_START_FROM as a timestamp.
+// If the value is present, convert it to a timestamp that will be used
+// as offset for new consumer groups. This will be ignored by existing consumer groups.
+// If the value is not present, default to the .AtCommitted() offset, or auto.offset.reset "none"
+// in Kafka. Given this configuration, new consumer groups will fail if the value is not present.
+func getConsumerStartOffset(env envx.EnvX) (kgo.Offset, error) {
+	var err error
+	startFrom := env.AsTime(time.RFC3339).Getenv("KAFKA_CONSUMER_START_FROM", envx.Intercept[time.Time](&err))
+	if err != nil {
+		if errors.Is(err, envx.ErrEmptyValue) {
+			return kgo.NewOffset().AtCommitted(), nil
+		}
+		return kgo.Offset{}, fmt.Errorf("invalid format of KAFKA_CONSUMER_START_FROM: %w", err)
+	}
+	startOffset := kgo.NewOffset().AfterMilli(startFrom.UnixMilli())
+	return startOffset, nil
 }
 
 // Reset consumer status and start the poll, process, commit loop.
