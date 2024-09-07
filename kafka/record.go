@@ -20,6 +20,14 @@ func updateFailureTopic(record *kgo.Record) string {
 	return string(h)
 }
 
+func getFailureTopic(record *kgo.Record) string {
+	if h := getRecordHeader(record, "FAILURE_TOPIC"); h != nil {
+		return string(h)
+	} else {
+		return ""
+	}
+}
+
 // Get number of attempted retries from RETRY_ATTEMPTS header value.
 // Return 0 if it doesn't exist or an error if the value cannot be converted to an int.
 func getRetryAttempts(record *kgo.Record) (retries int, err error) {

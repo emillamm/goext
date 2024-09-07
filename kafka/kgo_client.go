@@ -18,8 +18,9 @@ func LoadKgoClient(
 	}
 
 	// add topics
-	for _, t := range consumeTopics {
-		opts = append(opts, kgo.ConsumeTopics(t))
+	if len(consumeTopics) > 0 {
+		opts = append(opts, kgo.ConsumeTopics(consumeTopics...))
+
 	}
 
 	// add group

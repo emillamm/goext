@@ -142,8 +142,15 @@ func (k *KafkaClient) Start() (errs <-chan error) {
 		return
 	}
 
-	// create underlying *kgo.Client
+	// load enabled consume topcis
 	consumeTopics := k.consumerRegistry.EnabledConsumerTopics()
+
+	// add retry topic for consumption
+	if k.retryTopic != "" {
+		consumeTopics = append(consumeTopics, k.retryTopic)
+	}
+
+	// create underlying *kgo.Client
 	underlying, err := LoadKgoClient(consumeTopics, k.group, k.startOffset)
 	if err != nil {
 		k.errs <- fmt.Errorf("failed to initialize *kgo.Client with error: %w", err)
@@ -167,7 +174,7 @@ func (k *KafkaClient) Start() (errs <-chan error) {
 // If topic was never registered, this will return ErrConsumerTopicDoesntExist.
 // If requires remote changes, a call to SyncConsumerTopics() is made.
 // If the sync operation times out (context expires), the registry might be out of sync
-// with the broker. An error is returned in this case and it is up to the caller to 
+// with the broker. An error is returned in this case and it is up to the caller to
 // handle the error by retrying the sync operation for example.
 func (k *KafkaClient) EnableConsumerTopic(ctx context.Context, topic string) error {
 	return <-k.consumerRegistry.SetEnabled(ctx, topic, true, k.SyncConsumerTopics)
@@ -180,7 +187,7 @@ func (k *KafkaClient) EnableConsumerTopic(ctx context.Context, topic string) err
 // If topic was never registered, this will return ErrConsumerTopicDoesntExist.
 // If requires remote changes, a call to SyncConsumerTopics() is made.
 // If the sync operation times out (context expires), the registry might be out of sync
-// with the broker. An error is returned in this case and it is up to the caller to 
+// with the broker. An error is returned in this case and it is up to the caller to
 // handle the error by retrying the sync operation for example.
 func (k *KafkaClient) DisableConsumerTopic(ctx context.Context, topic string) error {
 	return <-k.consumerRegistry.SetEnabled(ctx, topic, false, k.SyncConsumerTopics)
@@ -196,6 +203,23 @@ func (k *KafkaClient) SyncConsumerTopics() error {
 	topicsToResume := enabledTopics.Intersect(pausedTopics)
 	k.underlying.PauseFetchTopics(topicsToPause.ToSlice()...)
 	k.underlying.ResumeFetchTopics(topicsToResume.ToSlice()...)
+	return nil
+}
+
+func (k *KafkaClient) EnableDlqConsumption() error {
+	if k.dlqTopic == "" {
+		return fmt.Errorf("Client is not configured with a dlq")
+	}
+	k.underlying.AddConsumeTopics(k.dlqTopic)
+	k.underlying.ResumeFetchTopics(k.dlqTopic)
+	return nil
+}
+
+func (k *KafkaClient) DisableDlqConsumption() error {
+	if k.dlqTopic == "" {
+		return fmt.Errorf("Client is not configured with a dlq")
+	}
+	k.underlying.PauseFetchTopics(k.dlqTopic)
 	return nil
 }
 
@@ -361,10 +385,11 @@ func (k *KafkaClient) pollProcessCommit() {
 	fetches.EachRecord(func(record *kgo.Record) {
 		wg.Add(1)
 		// get consumer handler from topic
-		consumer, err := k.consumerRegistry.GetConsumer(record.Topic)
+		consumer, err := k.getConsumerForRecord(record)
 		if err != nil {
 			panic(fmt.Sprintf("failed to get consumer for topic %s: %v", record.Topic, err))
 		}
+
 		// prepare record
 		var ackOnce sync.Once
 		ack := func() {
@@ -391,6 +416,19 @@ func (k *KafkaClient) pollProcessCommit() {
 		k.errs <- fmt.Errorf("failed to commit offsets - closing client: %w", err)
 		k.Close()
 	}
+}
+
+func (k *KafkaClient) getConsumerForRecord(record *kgo.Record) (consumer *kafkahelper.RegisteredConsumer, err error) {
+	consumer, err = k.consumerRegistry.GetConsumer(record.Topic)
+	// if consumer doesn't exist for topic, try getting consumer from FAILURE_TOPIC, if present.
+	// This will find the right consumer if the record came from a retry/dlq topic.
+	if err != nil && errors.Is(err, ErrConsumerTopicDoesntExist) {
+		failureTopic := getFailureTopic(record)
+		if failureTopic != "" {
+			consumer, err = k.consumerRegistry.GetConsumer(failureTopic)
+		}
+	}
+	return
 }
 
 func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error) error {
