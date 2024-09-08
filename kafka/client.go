@@ -17,6 +17,7 @@ var ErrClientClosed = errors.New("KafkaClient is closed")
 // Exported types from kafkahelper module
 var ErrConsumerTopicAlreadyExists = kafkahelper.ErrConsumerTopicAlreadyExists
 var ErrConsumerTopicDoesntExist = kafkahelper.ErrConsumerTopicDoesntExist
+var ErrDqlNotConfigured = fmt.Errorf("This client was not configured to comsume from dlq")
 type ConsumeRecord = kafkahelper.ConsumeRecord
 
 
@@ -61,6 +62,7 @@ func NewKafkaClient(ctx context.Context, env envx.EnvX) (client *KafkaClient, er
 		// wait for context to be done or for client done channel to be closed
 		select {
 		case <-ctx.Done():
+			client.errs <- fmt.Errorf("client context cancelled/expired: %w", ctx.Err())
 			client.Close()
 		case <-client.doneChan:
 			break
@@ -195,29 +197,42 @@ func (k *KafkaClient) DisableConsumerTopic(ctx context.Context, topic string) er
 
 // Pause/resume consumption of topics in Kafka according to the status of the consumers in the registry.
 func (k *KafkaClient) SyncConsumerTopics() error {
+	// No-op if client is not yet started
+	if !k.IsStarted() {
+		return nil
+	}
 	currentPausedTopics := k.underlying.PauseFetchTopics() // no args returns all paused topics
+	currentConsumeTopics := k.underlying.GetConsumeTopics() // no args returns all paused topics
 	allTopics := mapset.NewSet[string](k.consumerRegistry.ConsumerTopics()...)
 	enabledTopics := mapset.NewSet[string](k.consumerRegistry.EnabledConsumerTopics()...)
 	pausedTopics := mapset.NewSet[string](currentPausedTopics...)
-	topicsToPause := allTopics.Difference(enabledTopics).Difference(pausedTopics)
-	topicsToResume := enabledTopics.Intersect(pausedTopics)
+	consumeTopics := mapset.NewSet[string](currentConsumeTopics...)
+	topicsToPause := allTopics.Difference(enabledTopics).Difference(pausedTopics) // Topics that are not enabled and not paused
+	topicsToResume := enabledTopics.Intersect(pausedTopics) // Topics that are enabled and paused
+	topicsToAdd := enabledTopics.Difference(pausedTopics).Difference(consumeTopics) // Topics that are enabled and not paused and not being consumed
 	k.underlying.PauseFetchTopics(topicsToPause.ToSlice()...)
+	k.underlying.AddConsumeTopics(topicsToAdd.ToSlice()...)
 	k.underlying.ResumeFetchTopics(topicsToResume.ToSlice()...)
 	return nil
 }
 
+// Start consuming from dlq topic by adding topic or resume
+// consumption if it was previously added.
+// If a dlq topic was not configured, it returns ErrDqlNotConfigured
 func (k *KafkaClient) EnableDlqConsumption() error {
 	if k.dlqTopic == "" {
-		return fmt.Errorf("Client is not configured with a dlq")
+		return ErrDqlNotConfigured
 	}
 	k.underlying.AddConsumeTopics(k.dlqTopic)
 	k.underlying.ResumeFetchTopics(k.dlqTopic)
 	return nil
 }
 
+// Stop consuming from dlq topic by pausing fetching from the topic.
+// If a dlq topic was not configured, it returns ErrDqlNotConfigured.
 func (k *KafkaClient) DisableDlqConsumption() error {
 	if k.dlqTopic == "" {
-		return fmt.Errorf("Client is not configured with a dlq")
+		return ErrDqlNotConfigured
 	}
 	k.underlying.PauseFetchTopics(k.dlqTopic)
 	return nil

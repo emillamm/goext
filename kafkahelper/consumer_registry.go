@@ -88,7 +88,7 @@ func (c *ConsumerRegistry) SetEnabled(
 	enabled bool,
 	syncOp func()error,
 ) <-chan error {
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	wrapErr := func(err error) error { return fmt.Errorf("could not set topic %s enabled=%b: %w", topic, enabled, err) }
 	if err := ctx.Err(); err != nil {
 		errChan <- wrapErr(err)
