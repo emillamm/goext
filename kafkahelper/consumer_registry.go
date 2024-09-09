@@ -32,7 +32,11 @@ func NewConsumerRegistry() *ConsumerRegistry {
 }
 
 func (c *ConsumerRegistry) ConsumerTopics() []string {
-	topics := make([]string, len(c.consumers))
+	var topics []string
+	if len(c.consumers) == 0 {
+		return topics
+	}
+	topics = make([]string, len(c.consumers))
 	i := 0
 	for t := range c.consumers {
 		topics[i] = t
