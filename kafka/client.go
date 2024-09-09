@@ -447,7 +447,7 @@ func (k *KafkaClient) getConsumerForRecord(record *kgo.Record) (consumer *kafkah
 }
 
 func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error) error {
-	topic := updateFailureTopic(record)
+	topic := getOrUpdateFailureTopic(record)
 	retries, err := getRetryAttempts(record)
 	if err != nil {
 		return err

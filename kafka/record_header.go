@@ -11,7 +11,7 @@ import (
 // the value of record.Topic.
 // Failure topic represents the last topic that this record passed through before its consumer failed,
 // not including retry and dlq topics. This value is stored in the FAILURE_TOPIC header value.
-func updateFailureTopic(record *kgo.Record) string {
+func getOrUpdateFailureTopic(record *kgo.Record) string {
 	h := getRecordHeader(record, "FAILURE_TOPIC")
 	if h == nil {
 		setRecordHeader(record, "FAILURE_TOPIC", []byte(record.Topic))
