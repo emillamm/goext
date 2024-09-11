@@ -526,6 +526,119 @@ func TestKafkaClient(t *testing.T) {
 		time.Sleep(10 * time.Millisecond) // allow ErrClientClosed to arrive
 		if !client.IsClosed() { t.Fatal("client is not closed") }
 	})
+
+
+
+
+	//t.Run("retry/dlq without registered consumer", func(t *testing.T) {
+
+	//	// Initialize values
+	//	topic1 := "test-topic-1"
+	//	topic2 := "test-topic-2"
+	//	topic3 := "test-topic-3"
+
+
+	//	// Create client
+	//	ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second) // client timeout
+	//	createClient := func() *KafkaClient {
+	//		env := getEnv
+	//		client, err := NewKafkaClient(ctx, env)
+	//		if err != nil { t.Fatal(err) }
+	//		return client
+	//	}
+
+	//	group1 := randomGroup()
+	//	group2 := randomGroup()
+	//	group3 := randomGroup()
+	//	client1 := createClient()
+	//	client2 := createClient()
+	//	client3 := createClient()
+
+
+
+
+
+
+	//	// Create record handler: Each received record is verified and processed for the given topic by calling Handle.
+	//	// The order of received records should correspond to the order of Handle calls below.
+	//	ctx, _ = context.WithTimeout(ctx, 7 * time.Second) // record handler timeout
+	//	handleRecordAck := func(handler *RecordHandler, expectedValue string) {
+	//		handler.Handle(func(r *ConsumeRecord) error {
+	//			if v := string(r.Underlying.Value); v != expectedValue { return fmt.Errorf("unexpected value %v", v) }
+	//			r.Ack()
+	//			return nil
+	//		})
+	//	}
+	//	handleRecordFail := func(handler *RecordHandler, expectedValue string) {
+	//		handler.Handle(func(r *ConsumeRecord) error {
+	//			if v := string(r.Underlying.Value); v != expectedValue { return fmt.Errorf("unexpected value %v", v) }
+	//			r.Fail(ErrRecordFailed)
+	//			return nil
+	//		})
+	//	}
+
+	//	handler1 := NewRecordHandler() // pass through retry topic two times, then ack
+	//	handleRecordFail(handler1, "r1")
+	//	handleRecordFail(handler1, "r1")
+	//	handleRecordAck(handler1, "r1")
+	//	handler1.Start(ctx)
+
+	//	handler2 := NewRecordHandler() // pass through dlq topic, then ack
+	//	handleRecordAck(handler2, "r2")
+	//	handler2.Start(ctx)
+
+	//	handler3 := NewRecordHandler() // pass through dlq topic, then ack
+	//	handleRecordAck(handler3, "r3")
+	//	handler3.Start(ctx)
+
+
+	//	// Configure clients that share the same retry and dlq topics
+	//	client1.SetGroup(group1)
+	//	client1.SetRetryTopic("test-retry-topic")
+	//	client1.SetDlqTopic("test-dlq-topic")
+
+	//	client2.SetGroup(group2)
+	//	client2.SetRetryTopic("test-retry-topic")
+	//	client2.SetDlqTopic("test-dlq-topic")
+
+	//	client3.SetGroup(group3)
+	//	client3.SetRetryTopic("test-retry-topic")
+	//	client3.SetDlqTopic("test-dlq-topic")
+
+
+	//	// register consumers for topics
+	//	registerConsumerWithHandler(t, client, handler1, topic1, 2, true)
+	//	registerConsumerWithHandler(t, client, handler2, topic2, 2, true)
+	//	registerConsumerWithHandler(t, client, handler3, topic3, 2, true)
+	//	registerConsumerWithHandler(t, client, handler3, topic1, 2, true)
+
+
+	//	// start client
+	//	startClientAndHandleErrors(t, client)
+
+
+	//	// publish records for the three topics
+	//	publishRecordWithValue(ctx, t, client1, "r1", topic1)
+	//	publishRecordWithValue(ctx, t, client2, "r2", topic2)
+	//	publishRecordWithValue(ctx, t, client3, "r3", topic3)
+
+
+	//	// Enable dlq consumption
+	//	if err = client1.EnableDlqConsumption(); err != nil { t.Fatal(err) }
+	//	if err = client2.EnableDlqConsumption(); err != nil { t.Fatal(err) }
+	//	if err = client3.EnableDlqConsumption(); err != nil { t.Fatal(err) }
+
+
+	//	// Check and verify that handler consumed all and only expected records
+	//	verifyHandlerError(t, handler1)
+	//	verifyHandlerError(t, handler2)
+	//	verifyHandlerError(t, handler3)
+
+
+	//	// Close client
+	//	closeClientAndWait(ctx, t, client)
+	//})
+
 }
 
 var ErrRecordFailed = fmt.Errorf("simulated record failure")

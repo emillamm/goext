@@ -7,6 +7,89 @@ import (
 	"slices"
 )
 
+var ErrHeaderDoesNotExist = errors.New("Record header does not exist")
+
+type HeaderTypes interface{int|string}
+
+// A structure that helps managing record headers
+type RecordHeaders struct {
+	underlying *kgo.Record
+	rawHeaders map[string][]byte
+}
+
+func NewRecordHeaders(record *kgo.Record) *RecordHeaders {
+}
+
+func GetValue[T HeaderTypes](headers *RecordHeaders, key string, fromString func(string)(T,error)) (res T, err error) {
+	strVal, ok := rawHeaders[key]
+	if !ok {
+		err = ErrHeaderDoesNotExist
+		return
+	}
+	res, err = fromString(strVal)
+	if err != nil {
+		err = fmt.Errorf("Could not convert key %v to desired type: %w", key, err)
+	}
+	return
+}
+
+func SetValue[T HeaderTypes](headers *RecordHeaders, key string, value T) {
+	strVal := fmt.Sprintf("%v", value)
+	setRecordHeader(headers.underlying, key, []byte(strVal))
+	rawHeaders[key]	= strVal := fmt.Sprintf("%v", value)
+}
+
+func GetOrSetValue[T HeaderTypes](headers *RecordHeaders, key string, value T, fromString func(string)(T,error)) (T, error) {
+	res, err := GetValue(headers, key, fromString)
+	if err == ErrHeaderDoesNotExist {
+		SetValue(headers, key, value)
+		return value, nil
+	}
+	return res, err
+}
+
+type RecordFailureState struct {
+	OriginalTopic string
+	ErrMessage string
+	Retries int
+}
+
+func InitRecordFailureState(headers RecordHeaders, group string, reason error) *RecordFailureState, error {
+	originalTopic, err := GetOrSetFailureValue(headers, group, "org_top", headers.underlying.Topic, stringIdent)
+	if err != nil { return err }
+	errMessage, err := GetOrSetFailureValue(headers, group, "msg", reason.String(), stringIdent)
+	if err != nil { return err }
+	retries, err := GetOrSetFailureValue(headers, group, "retries", 0, strconv.Atoi)
+	if err != nil { return err }
+	return &RecordFailureState{
+		OriginalTopic: originalTopic,
+		ErrMessage: errMessage,
+		Retries: retries,
+	}
+}
+
+func stringIdent(s string) (string, error) { return s, nil }
+
+func GetOrSetFailureValue[T HeaderTypes](
+	headers *RecordHeaders,
+	group string,
+	key string,
+	value string,
+	fromString func(string)(T,error)
+) (res T, err error) {
+	entryFmt := "mika_err_%s"
+	entryGroupFmt := "mika_err_%s_%s"
+	res, err = GetOrSetValue(headers, fmt.Sprintf(entryGroupFmt, key), value, fromString func(string)(T,error))
+	if err == nil {
+		SetValue(headers, fmt.Sprintf(entryFmt, key), value)
+	}
+	return
+}
+
+
+
+
+
 // Get and return the value of FAILURE_TOPIC. If it doesn't yet exist, first initialize it to
 // the value of record.Topic.
 // Failure topic represents the last topic that this record passed through before its consumer failed,

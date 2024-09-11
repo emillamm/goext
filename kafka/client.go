@@ -17,7 +17,9 @@ var ErrClientClosed = errors.New("KafkaClient is closed")
 // Exported types from kafkahelper module
 var ErrConsumerTopicAlreadyExists = kafkahelper.ErrConsumerTopicAlreadyExists
 var ErrConsumerTopicDoesntExist = kafkahelper.ErrConsumerTopicDoesntExist
-var ErrDqlNotConfigured = fmt.Errorf("This client was not configured to comsume from dlq")
+var ErrDqlNotConfigured = errors.New("This client was not configured to comsume from dlq")
+var ErrRetriedRecordWithoutConsumer = errors.New("This client does not have a consumer for a record consumed from a retry/dlq topic")
+var ErrRetriedRecordFromDifferentGroup = errors.New("This client group is different from the original client group that published to a retry/dlq topic")
 type ConsumeRecord = kafkahelper.ConsumeRecord
 
 
@@ -97,7 +99,7 @@ func (k *KafkaClient) RegisterConsumer(
 	)
 }
 
-// Set client consumer group. Must be called before client is started otherwise it will panic.
+// Set client consumer group. This must be called before client is started otherwise it will panic.
 func (k *KafkaClient) SetGroup(group string) {
 	if k.IsStarted() {
 		panic("cannot set consumer group after client has been started")
@@ -105,6 +107,12 @@ func (k *KafkaClient) SetGroup(group string) {
 	k.group = group
 }
 
+// Set client retry topic which allows for consumers to replay failed records.
+// This must be called before client is started otherwise it will panic.
+// This option also requires using a consumer group. The group is used to identify
+// whether or not a client "owns" a record that came from the retry topic as multiple
+// clients can share the same retry topic. If a group is not configured when client.Start() is
+// called, it will panic.
 func (k *KafkaClient) SetRetryTopic(topic string) {
 	if k.IsStarted() {
 		panic("cannot set consumer group after client has been started")
@@ -115,6 +123,12 @@ func (k *KafkaClient) SetRetryTopic(topic string) {
 	k.retryTopic = topic
 }
 
+// Set client dlq topic which allows for consumers to replay failed records.
+// This must be called before client is started otherwise it will panic.
+// This option also requires using a consumer group. The group is used to identify
+// whether or not a client "owns" a record that came from the dlq topic as multiple
+// clients can share the same dlq topic. If a group is not configured when client.Start() is
+// called, it will panic.
 func (k *KafkaClient) SetDlqTopic(topic string) {
 	if k.IsStarted() {
 		panic("cannot set consumer group after client has been started")
@@ -147,9 +161,15 @@ func (k *KafkaClient) Start() (errs <-chan error) {
 	// load enabled consume topcis
 	consumeTopics := k.consumerRegistry.EnabledConsumerTopics()
 
-	// add retry topic for consumption
+	// add retry topic for consumption and verify that group is set
 	if k.retryTopic != "" {
+		if k.group == "" { panic("a consumer group must be set on the client if retries are enabled") }
 		consumeTopics = append(consumeTopics, k.retryTopic)
+	}
+
+	// verify that group is set if using dlq
+	if k.dlqTopic != "" && k.group == "" {
+		panic("a consumer group must be set on the client if dlq is enabled")
 	}
 
 	// create underlying *kgo.Client
@@ -402,7 +422,26 @@ func (k *KafkaClient) pollProcessCommit() {
 		// get consumer handler from topic
 		consumer, err := k.getConsumerForRecord(record)
 		if err != nil {
+			// If this record came from a retry/dlq topic and the client doesn't have a consumer registered for 
+			// this type of record (per the FAILURE_TOPIC header), simply drop the record.
+			if errors.Is(err, ErrRetriedRecordWithoutConsumer) {
+				wg.Done()
+				return
+			}
+			// If this record came from a retry/dlq topic but it originated from a different client
+			// (as per the FAILURE_GROUP header), simply drop the record.
+			if errors.Is(err, ErrRetriedRecordFromDifferentGroup) {
+				wg.Done()
+				return
+			}
+			// this should never happen as consumers must be registered on start
 			panic(fmt.Sprintf("failed to get consumer for topic %s: %v", record.Topic, err))
+		}
+
+		// if consumer is not enabled, simply drop the record
+		if !consumer.Enabled {
+			wg.Done()
+			return
 		}
 
 		// prepare record
@@ -441,24 +480,71 @@ func (k *KafkaClient) getConsumerForRecord(record *kgo.Record) (consumer *kafkah
 		failureTopic := getFailureTopic(record)
 		if failureTopic != "" {
 			consumer, err = k.consumerRegistry.GetConsumer(failureTopic)
+			if err != nil && errors.Is(err, ErrConsumerTopicDoesntExist) {
+				err = ErrRetriedRecordWithoutConsumer
+				return
+			}
+			failureGroup := getFailureGroup(record)
+			if k.group == "" || k.group != failureGroup {
+				err = ErrRetriedRecordFromDifferentGroup
+			}
 		}
 	}
 	return
 }
 
 func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error) error {
+
+	//// if retry or dlq enabled
+
+	//isRetriesEnabled := k.retryTopic != "" && k.group != ""
+	//isDlqTopicEnabled := k.dlqTopic != "" && k.group != ""
+
+	//isConsumedFromRetryTopic := k.retryTopic == record.Topic
+	//isConsumedFromDlqTopic := k.dlqTopic == record.Topic
+
+	//isRetryTopicEnabledAndNotConsumedFromRetryTopic := isRetryTopicEnabled && !isConsumedFromRetryTopic
+	//isDlqTopicEnabledAndNotConsumedFromDlqTopic := isDlqTopicEnabled && !isConsumedFromDlqTopic
+
+	//// Reset failed record headers if retries or dlq is enabled and it is the first this client
+	//// handles this record failure. Headers will be overwritten if it was previously 
+	//// 2. 
+	//if isRetryTopicEnabledAndNotConsumedFromRetryTopic || isDlqTopicEnabledAndNotConsumedFromDlqTopic {
+	//	resetFailedRecordHeaders(record, k.group)
+	//}
+
+	//initFailureHeaders(record,
+
 	topic := getOrUpdateFailureTopic(record)
-	retries, err := getRetryAttempts(record)
-	if err != nil {
-		return err
-	}
+
 	consumer, err := k.consumerRegistry.GetConsumer(topic)
 	if err != nil {
 		return fmt.Errorf("could not get consumer for topic %s: %w", topic, err)
 	}
 
+	retriesEnabled := k.retryTopic != "" && k.group != "" && consumer.Retries > 0
+	dlqEnabled := k.dlqTopic != "" && k.group != "" && consumer.UseDlq
+
+	if !(retriesEnabled || dlqEnabled) {
+		return fmt.Errorf("retries/dlq not enabled for topic %s. Record failed with error: %s", record.Topic, failureReason)
+	}
+
+	// init any record headers that are not set yet
+	headers, err := initRecordFailureHeaders(record, k.group)
+	if err != nil {
+		return err
+	}
+
+
+	//getOrUpdateFailureGroup(record)
+	//retries, err := getRetryAttempts(record)
+	//if err != nil {
+	//	return err
+	//}
+
+
 	// publish to retry topic if one exists and there are retries left
-	if k.retryTopic != "" && consumer.Retries > retries {
+	if retriesEnabled && consumer.Retries > headers.Retries {
 		ctx, _ := context.WithTimeout(context.Background(), 5 * time.Second) // TODO make configurable
 		retryRecord := *record
 		retryRecord.Topic = k.retryTopic
@@ -468,7 +554,7 @@ func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error
 		}
 		return nil
 	}
-	if consumer.UseDlq  && k.dlqTopic != "" {
+	if dlqEnabled {
 		ctx, _ := context.WithTimeout(context.Background(), 5 * time.Second) // TODO make configurable
 		dlqRecord := *record
 		dlqRecord.Topic = k.dlqTopic
