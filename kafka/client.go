@@ -419,8 +419,14 @@ func (k *KafkaClient) pollProcessCommit() {
 
 	fetches.EachRecord(func(record *kgo.Record) {
 		wg.Add(1)
+
+		// We want headers to be created lazily and only once
+		// as it requires iterating through every header value.
+		getHeadersOnce := sync.OnceValue(func() *Headers { return NewHeaders(record) })
+		getHeaders := func() *Headers { return getHeadersOnce() }
+
 		// get consumer handler from topic
-		consumer, err := k.getConsumerForRecord(record)
+		consumer, err := k.getConsumerForRecord(record, getHeaders)
 		if err != nil {
 			// If this record came from a retry/dlq topic and the client doesn't have a consumer registered for 
 			// this type of record (per the FAILURE_TOPIC header), simply drop the record.
@@ -454,7 +460,7 @@ func (k *KafkaClient) pollProcessCommit() {
 		var failOnce sync.Once
 		fail := func(reason error) {
 			failOnce.Do(func() {
-				if err := k.handleFailedRecord(record, reason); err != nil {
+				if err := k.handleFailedRecord(record, reason, getHeaders); err != nil {
 					k.errs <- fmt.Errorf("calling fail() on a record resulted in an error which can lead to blocked consumers: %w", err)
 				} else {
 					ack()
@@ -472,88 +478,65 @@ func (k *KafkaClient) pollProcessCommit() {
 	}
 }
 
-func (k *KafkaClient) getConsumerForRecord(record *kgo.Record) (consumer *kafkahelper.RegisteredConsumer, err error) {
+func (k *KafkaClient) getConsumerForRecord(record *kgo.Record, getHeaders func()*Headers) (consumer *kafkahelper.RegisteredConsumer, err error) {
 	consumer, err = k.consumerRegistry.GetConsumer(record.Topic)
 	// if consumer doesn't exist for topic, try getting consumer from FAILURE_TOPIC, if present.
 	// This will find the right consumer if the record came from a retry/dlq topic.
-	if err != nil && errors.Is(err, ErrConsumerTopicDoesntExist) {
-		failureTopic := getFailureTopic(record)
-		if failureTopic != "" {
+	// This requires the consumer group to be defined on the client.
+	if err != nil && errors.Is(err, ErrConsumerTopicDoesntExist) && k.group != "" {
+		failureTopic, failureTopicErr := GetFailureHeader(getHeaders(), k.group, KeyOriginalTopic, StringDeserializer)
+		if errors.Is(failureTopicErr, ErrHeaderDoesNotExist) {
+			return
+		} else if failureTopicErr != nil {
+			err = fmt.Errorf("invalid header value representing original topic for group %s: %w", k.group, failureTopicErr)
+		} else {
 			consumer, err = k.consumerRegistry.GetConsumer(failureTopic)
 			if err != nil && errors.Is(err, ErrConsumerTopicDoesntExist) {
 				err = ErrRetriedRecordWithoutConsumer
-				return
-			}
-			failureGroup := getFailureGroup(record)
-			if k.group == "" || k.group != failureGroup {
-				err = ErrRetriedRecordFromDifferentGroup
 			}
 		}
 	}
 	return
 }
 
-func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error) error {
+func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error, getHeaders func()*Headers) error {
 
-	//// if retry or dlq enabled
+	// Short-circuit if group is not defined.
+	// Without a group, we cannot associate the failure headers with a consumer group.
+	// We do not want to rely on a global record failure state because multiple consumers can share
+	// the same retry/dlq topic. We want each consumer to have it's own state on any given record.
+	if k.group == "" {
+		return fmt.Errorf(
+			"No consumer group for client. Therefore no Retries/dlq. Record failed with topic: %s error: %s",
+			record.Topic,
+			failureReason,
+		)
+	}
 
-	//isRetriesEnabled := k.retryTopic != "" && k.group != ""
-	//isDlqTopicEnabled := k.dlqTopic != "" && k.group != ""
 
-	//isConsumedFromRetryTopic := k.retryTopic == record.Topic
-	//isConsumedFromDlqTopic := k.dlqTopic == record.Topic
+	headers := getHeaders()
+	failureState, err := InitFailureHeaders(headers, k.group, failureReason)
+	if err != nil { return err }
 
-	//isRetryTopicEnabledAndNotConsumedFromRetryTopic := isRetryTopicEnabled && !isConsumedFromRetryTopic
-	//isDlqTopicEnabledAndNotConsumedFromDlqTopic := isDlqTopicEnabled && !isConsumedFromDlqTopic
-
-	//// Reset failed record headers if retries or dlq is enabled and it is the first this client
-	//// handles this record failure. Headers will be overwritten if it was previously 
-	//// 2. 
-	//if isRetryTopicEnabledAndNotConsumedFromRetryTopic || isDlqTopicEnabledAndNotConsumedFromDlqTopic {
-	//	resetFailedRecordHeaders(record, k.group)
-	//}
-
-	//initFailureHeaders(record,
-
-	topic := getOrUpdateFailureTopic(record)
-
-	consumer, err := k.consumerRegistry.GetConsumer(topic)
+	consumer, err := k.consumerRegistry.GetConsumer(failureState.OriginalTopic)
 	if err != nil {
-		return fmt.Errorf("could not get consumer for topic %s: %w", topic, err)
+		return fmt.Errorf("could not get consumer for topic %s: %w", failureState.OriginalTopic, err)
 	}
-
-	retriesEnabled := k.retryTopic != "" && k.group != "" && consumer.Retries > 0
-	dlqEnabled := k.dlqTopic != "" && k.group != "" && consumer.UseDlq
-
-	if !(retriesEnabled || dlqEnabled) {
-		return fmt.Errorf("retries/dlq not enabled for topic %s. Record failed with error: %s", record.Topic, failureReason)
-	}
-
-	// init any record headers that are not set yet
-	headers, err := initRecordFailureHeaders(record, k.group)
-	if err != nil {
-		return err
-	}
-
-
-	//getOrUpdateFailureGroup(record)
-	//retries, err := getRetryAttempts(record)
-	//if err != nil {
-	//	return err
-	//}
 
 
 	// publish to retry topic if one exists and there are retries left
-	if retriesEnabled && consumer.Retries > headers.Retries {
+	retriesEnabled := k.retryTopic != "" && consumer.Retries > 0
+	if retriesEnabled && consumer.Retries > failureState.Retries {
 		ctx, _ := context.WithTimeout(context.Background(), 5 * time.Second) // TODO make configurable
 		retryRecord := *record
 		retryRecord.Topic = k.retryTopic
-		incrementRetryAttempts(&retryRecord)
+		failureState.IncrementRetries(headers, k.group)
 		if err := k.PublishRecord(ctx, k.retryTopic, &retryRecord); err != nil {
 			return fmt.Errorf("failed to publish record to retry topic: %w", err)
 		}
 		return nil
 	}
+	dlqEnabled := k.dlqTopic != "" && k.group != "" && consumer.UseDlq
 	if dlqEnabled {
 		ctx, _ := context.WithTimeout(context.Background(), 5 * time.Second) // TODO make configurable
 		dlqRecord := *record
