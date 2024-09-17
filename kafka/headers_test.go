@@ -44,7 +44,8 @@ func TestHeaders(t *testing.T) {
 
 	t.Run("get and set headers", func(t *testing.T) {
 		// start with initially empty record
-		h := NewHeaders(&kgo.Record{})
+		record := &kgo.Record{}
+		h := NewHeaders(record)
 
 		report := func(value any, err error) {
 			t.Helper()
@@ -53,6 +54,21 @@ func TestHeaders(t *testing.T) {
 		// Set and get string values
 		SetHeader(h, "k1", "v1", StringSerializer)
 		if v, err := GetHeader(h, "k1", StringDeserializer); err != nil || v != "v1" {
+			report(v, err)
+		}
+
+		// Set and get header - creating a new header from the record
+		// This tests that headers are preserved even when calling NewHeaders
+		SetHeader(h, "k1", "v1", StringSerializer)
+		if v, err := GetHeader(NewHeaders(record), "k1", StringDeserializer); err != nil || v != "v1" {
+			report(v, err)
+		}
+
+		// Set, update and get header - creating a new header from the record
+		// This tests that headers are preserved even when calling NewHeaders
+		SetHeader(h, "k1", "v1", StringSerializer)
+		SetHeader(h, "k1", "v1a", StringSerializer)
+		if v, err := GetHeader(NewHeaders(record), "k1", StringDeserializer); err != nil || v != "v1a" {
 			report(v, err)
 		}
 
@@ -95,59 +111,5 @@ func TestHeaders(t *testing.T) {
 		}
 
 	})
-
-	//t.Run("set and get record header", func(t *testing.T) {
-	//	record := &kgo.Record{}
-	//	if h := getRecordHeader(record, "foo"); h != nil {
-	//		t.Errorf("expected nil header")
-	//	}
-	//	setRecordHeader(record, "foo", []byte("bar"))
-	//	if h := getRecordHeader(record, "foo"); h == nil || string(h) != "bar" {
-	//		t.Errorf("got %v, want bar", h)
-	//	}
-
-	//})
-
-	//t.Run("increment and get retry attempts", func(t *testing.T) {
-	//	record := &kgo.Record{}
-	//	if r, err := getRetryAttempts(record); err !=nil || r != 0 {
-	//		t.Errorf("got %v, %v, want nil, 0", r, err)
-	//	}
-	//	if h := getRecordHeader(record, "RETRY_ATTEMPTS"); h != nil {
-	//		t.Errorf("got %v, want []", h)
-	//	}
-	//	if r, err := incrementRetryAttempts(record); err !=nil || r != 1 {
-	//		t.Errorf("got %v, %v, want nil, 0", r, err)
-	//	}
-	//	if h := getRecordHeader(record, "RETRY_ATTEMPTS"); h == nil || string(h) != "1" {
-	//		t.Errorf("got %v, want 1", h)
-	//	}
-	//	if r, err := getRetryAttempts(record); err !=nil || r != 1 {
-	//		t.Errorf("got %v, %v, want nil, 1", r, err)
-	//	}
-
-	//})
-
-	//t.Run("update and get failure topic", func(t *testing.T) {
-	//	record := &kgo.Record{}
-	//	if topic := getFailureTopic(record); topic != "" {
-	//		t.Errorf("got %v, want \"\"", topic)
-	//	}
-	//	record.Topic = "foo"
-	//	if topic := getOrUpdateFailureTopic(record); topic != "foo" {
-	//		t.Errorf("got %v, want foo", topic)
-	//	}
-	//	if topic := getFailureTopic(record); topic != "foo" {
-	//		t.Errorf("got %v, want foo", topic)
-	//	}
-	//	// should still be foo after updating topic to bar
-	//	record.Topic = "bar"
-	//	if topic := getOrUpdateFailureTopic(record); topic != "foo" {
-	//		t.Errorf("got %v, want foo", topic)
-	//	}
-	//	if topic := getFailureTopic(record); topic != "foo" {
-	//		t.Errorf("got %v, want foo", topic)
-	//	}
-	//})
 }
 

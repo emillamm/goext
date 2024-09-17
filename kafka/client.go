@@ -18,7 +18,7 @@ var ErrClientClosed = errors.New("KafkaClient is closed")
 var ErrConsumerTopicAlreadyExists = kafkahelper.ErrConsumerTopicAlreadyExists
 var ErrConsumerTopicDoesntExist = kafkahelper.ErrConsumerTopicDoesntExist
 var ErrDqlNotConfigured = errors.New("This client was not configured to comsume from dlq")
-var ErrRetriedRecordWithoutConsumer = errors.New("This client does not have a consumer for a record consumed from a retry/dlq topic")
+var ErrRetriedRecordWithoutConsumer = errors.New("This client does not have a consumer for a record consumed from a retry/dlq topic. This should not happen.")
 var ErrRetriedRecordFromDifferentGroup = errors.New("This client group is different from the original client group that published to a retry/dlq topic")
 type ConsumeRecord = kafkahelper.ConsumeRecord
 
@@ -390,32 +390,38 @@ func (k *KafkaClient) startPollProcessCommitLoop() {
 func (k *KafkaClient) pollProcessCommit() {
 
 	// Create a context that can be passed to kgo.Client.PollFetches
-	// and will be cancelled if the consumer done channel is closed.
+	// and will be cancelled if the consumer is terminated (gracefully or not).
 	// Put this in a go routine that will end once the polling finishes.
 	doneChan := make(chan struct{})
 	defer close(doneChan)
-	ctx, cancel := context.WithCancel(context.Background())
+	fetchCtx, cancel := context.WithCancel(context.Background())
 	go func() {
 		select {
-		case <-k.consumerStatus.DoneSig():
+		case <-k.consumerStatus.TermSig():
 			cancel()
 		case <-doneChan:
 			break
 		}
 	}()
 
-	// This waitgroup ensures that the method blocks until all records have been processed.
-	var wg sync.WaitGroup
-	fetches := k.underlying.PollFetches(ctx)
+	// Block until fetches are available or context expires.
+	fetches := k.underlying.PollFetches(fetchCtx)
 
-	// if there are any errors, publish them all to the errs channel and close client without committing
+	// If there are any errors, publish them all to the errs channel and close client without committing.
+	// Only exception is if context is cancelled. because the consumer is being terminated. Then simply return.
 	if fetches.Err() != nil {
+		if err := fetches.Err0(); err != nil && errors.Is(err, context.Canceled) {
+			return
+		}
 		fetches.EachError(func(topic string, partition int32, err error) {
 			k.errs <- fmt.Errorf("fetch error at topic %s, partition %v: %w", topic, partition, err)
 		})
 		k.Close()
 		return
 	}
+
+	// This waitgroup ensures that the method blocks until all records have been processed.
+	var wg sync.WaitGroup
 
 	fetches.EachRecord(func(record *kgo.Record) {
 		wg.Add(1)
@@ -429,7 +435,8 @@ func (k *KafkaClient) pollProcessCommit() {
 		consumer, err := k.getConsumerForRecord(record, getHeaders)
 		if err != nil {
 			// If this record came from a retry/dlq topic and the client doesn't have a consumer registered for 
-			// this type of record (per the FAILURE_TOPIC header), simply drop the record.
+			// this type of record (per the FAILURE_TOPIC header), it means that something is wrong and we should
+			// not call wg.Done()
 			if errors.Is(err, ErrRetriedRecordWithoutConsumer) {
 				wg.Done()
 				return
@@ -471,8 +478,10 @@ func (k *KafkaClient) pollProcessCommit() {
 		consumer.Process(kafkahelper.NewConsumeRecord(record, ack, fail))
 	})
 	wg.Wait()
+
 	// Try committing offsets. If it fails, publish error and close client
-	if err := k.underlying.CommitUncommittedOffsets(ctx); err != nil {
+	commitCtx := context.Background()
+	if err := k.underlying.CommitUncommittedOffsets(commitCtx); err != nil {
 		k.errs <- fmt.Errorf("failed to commit offsets - closing client: %w", err)
 		k.Close()
 	}
@@ -486,6 +495,9 @@ func (k *KafkaClient) getConsumerForRecord(record *kgo.Record, getHeaders func()
 	if err != nil && errors.Is(err, ErrConsumerTopicDoesntExist) && k.group != "" {
 		failureTopic, failureTopicErr := GetFailureHeader(getHeaders(), k.group, KeyOriginalTopic, StringDeserializer)
 		if errors.Is(failureTopicErr, ErrHeaderDoesNotExist) {
+			if k.isFromRetryOrDlq(record) {
+				err = ErrRetriedRecordFromDifferentGroup
+			}
 			return
 		} else if failureTopicErr != nil {
 			err = fmt.Errorf("invalid header value representing original topic for group %s: %w", k.group, failureTopicErr)
@@ -497,6 +509,10 @@ func (k *KafkaClient) getConsumerForRecord(record *kgo.Record, getHeaders func()
 		}
 	}
 	return
+}
+
+func (k *KafkaClient) isFromRetryOrDlq(record *kgo.Record) bool {
+	return (k.retryTopic != "" && record.Topic == k.retryTopic) || (k.dlqTopic != "" && record.Topic == k.dlqTopic)
 }
 
 func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error, getHeaders func()*Headers) error {
@@ -528,9 +544,9 @@ func (k *KafkaClient) handleFailedRecord(record *kgo.Record, failureReason error
 	retriesEnabled := k.retryTopic != "" && consumer.Retries > 0
 	if retriesEnabled && consumer.Retries > failureState.Retries {
 		ctx, _ := context.WithTimeout(context.Background(), 5 * time.Second) // TODO make configurable
+		failureState.IncrementRetries(headers, k.group)
 		retryRecord := *record
 		retryRecord.Topic = k.retryTopic
-		failureState.IncrementRetries(headers, k.group)
 		if err := k.PublishRecord(ctx, k.retryTopic, &retryRecord); err != nil {
 			return fmt.Errorf("failed to publish record to retry topic: %w", err)
 		}

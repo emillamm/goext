@@ -108,7 +108,7 @@ func (headers *Headers) setOrUpdateHeaderValue(key string, bytes []byte) {
 	} else {
 		// existing header => update
 		header.Bytes = bytes
-		underlyingRecordHeader := headers.underlying.Headers[header.Index]
+		underlyingRecordHeader := &headers.underlying.Headers[header.Index]
 		if underlyingRecordHeader.Key != key {
 			panicStr := "RecordHeader.Key \"%s\" did not match local Headers.headerMap key \"%s\". This should not happen!"
 			panic(fmt.Sprintf(panicStr, underlyingRecordHeader.Key, key))
