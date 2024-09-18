@@ -27,24 +27,6 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-timeout 5s --health-retries 8 --memory=3g
-      kafka:
-        image: apache/kafka
-        env:
-          KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
-          KAFKA_NODE_ID: 1
-          KAFKA_PROCESS_ROLES: 'broker,controller'
-          KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092'
-          KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,PLAINTEXT_HOST://localhost:29092'
-          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
-          KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:9093'
-          KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-          CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-        ports:
-          - 9092:9092
-          - 29092:29092
 
     steps:
       - uses: actions/checkout@v4
