@@ -19,13 +19,14 @@ func (c ConnectionParams) ConnectionString() string {
 }
 
 func LoadConnectionParams(env envx.EnvX) (ConnectionParams, error) {
-	var err envx.Errors
 
-	host := env.Getenv("POSTGRES_HOST", envx.Default("localhost"))
-	port := env.AsInt().Getenv("POSTGRES_PORT", envx.Default[int](5432), envx.Observe[int](&err))
-	database := env.Getenv("POSTGRES_DATABASE", envx.Observe[string](&err))
-	user := env.Getenv("POSTGRES_USER", envx.Observe[string](&err))
-	pass := env.Getenv("POSTGRES_PASS", envx.Observe[string](&err))
+	checks := envx.NewChecks()
+
+	host := envx.Check(env.String("POSTGRES_HOST").Default("localhost"))(checks)
+	port := envx.Check(env.Int("POSTGRES_PORT").Default(5432))(checks)
+	database := envx.Check(env.String("POSTGRES_DATABASE").Value())(checks)
+	user := envx.Check(env.String("POSTGRES_USER").Value())(checks)
+	pass := envx.Check(env.String("POSTGRES_PASS").Value())(checks)
 
 	params := ConnectionParams{
 		Host: host,
@@ -35,7 +36,7 @@ func LoadConnectionParams(env envx.EnvX) (ConnectionParams, error) {
 		Pass: pass,
 	}
 
-	return params, err.Error()
+	return params, checks.Err()
 }
 
 func (c ConnectionParams) EnvOverwrite(env envx.EnvX) envx.EnvX {

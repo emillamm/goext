@@ -32,26 +32,18 @@ type Service struct {
 
 func NewService(env envx.EnvX) (*Service, error) {
 
-	var errs envx.Errors
+	checks := envx.NewChecks()
 
-	host := env.Getenv(
-		"HTTP_HOST", envx.Default("localhost"))
-	hostScheme := env.Getenv(
-		"HTTP_HOST_SCHEME", envx.Default("http"))
-	port := env.AsInt().Getenv(
-		"HTTP_PORT", envx.Default[int](5001), envx.Observe[int](&errs))
-	readyCheckPath := env.Getenv(
-		"HTTP_READY_CHECK_PATH", envx.Default[string]("/health"))
-	readyCheckTimeout := env.AsDuration().Getenv(
-		"HTTP_READY_CHECK_TIMEOUT", envx.Default[time.Duration](200 * time.Millisecond), envx.Observe[time.Duration](&errs))
-	readyTickInterval := env.AsDuration().Getenv(
-		"HTTP_READY_TICK_INTERVAL", envx.Default[time.Duration](200 * time.Millisecond), envx.Observe[time.Duration](&errs))
-	readyTickTimeout := env.AsDuration().Getenv(
-		"HTTP_READY_TICK_TIMEOUT", envx.Default[time.Duration](1 * time.Second), envx.Observe[time.Duration](&errs))
-	shutdownTimeout := env.AsDuration().Getenv(
-		"HTTP_READY_TICK_TIMEOUT", envx.Default[time.Duration](15 * time.Second), envx.Observe[time.Duration](&errs))
+	host := envx.Check(env.String("HTTP_HOST").Default("localhost"))(checks)
+	hostScheme := envx.Check(env.String("HTTP_HOST_SCHEME").Default("http"))(checks)
+	port := envx.Check(env.Int("HTTP_PORT").Default(5001))(checks)
+	readyCheckPath := envx.Check(env.String("HTTP_READY_CHECK_PATH").Default("/health"))(checks)
+	readyCheckTimeout := envx.Check(env.Duration("HTTP_READY_CHECK_TIMEOUT").Default(200 * time.Millisecond))(checks)
+	readyTickInterval := envx.Check(env.Duration("HTTP_READY_TICK_INTERVAL").Default(200 * time.Millisecond))(checks)
+	readyTickTimeout := envx.Check(env.Duration("HTTP_READY_TICK_TIMEOUT").Default(1 * time.Second))(checks)
+	shutdownTimeout := envx.Check(env.Duration("HTTP_READY_TICK_TIMEOUT").Default(15 * time.Second))(checks)
 
-	if err := errs.Error(); err != nil {
+	if err := checks.Err(); err != nil {
 		return nil, err
 	}
 

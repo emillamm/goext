@@ -157,15 +157,16 @@ func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
 }
 
 func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
-	var err envx.Errors
+
+	checks := envx.NewChecks()
 
 	// These defaults work with the offical postgres Docker image when running:
 	// docker run --rm --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres
-	host := env.Getenv("POSTGRES_HOST", envx.Default("localhost"))
-	port := env.AsInt().Getenv("POSTGRES_PORT", envx.Default(5432), envx.Observe[int](&err))
-	database := env.Getenv("POSTGRES_DATABASE", envx.Default("postgres"))
-	user := env.Getenv("POSTGRES_USER", envx.Default("postgres"))
-	pass := env.Getenv("POSTGRES_PASS", envx.Default("postgres"))
+	host := envx.Check(env.String("POSTGRES_HOST").Default("localhost"))(checks)
+	port := envx.Check(env.Int("POSTGRES_PORT").Default(5432))(checks)
+	database := envx.Check(env.String("POSTGRES_DATABASE").Default("postgres"))(checks)
+	user := envx.Check(env.String("POSTGRES_USER").Default("postgres"))(checks)
+	pass := envx.Check(env.String("POSTGRES_PASS").Default("postgres"))(checks)
 
 	params := pg.ConnectionParams{
 		Host: host,
@@ -175,7 +176,7 @@ func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
 		Pass: pass,
 	}
 
-	return params, err.Error()
+	return params, checks.Err()
 }
 
 func (sm *SessionManager) Run(t *testing.T, msg string, testFn func(*testing.T, *pgx.Conn))  {
