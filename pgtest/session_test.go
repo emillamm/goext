@@ -1,15 +1,15 @@
 package pgtest
 
 import (
-	"fmt"
-	"testing"
-	"github.com/jackc/pgx/v5"
 	"context"
+	"fmt"
 	"os"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestSession(t *testing.T) {
-
 	ctx := context.Background()
 	sm, err := NewSessionManager(os.Getenv)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestSession(t *testing.T) {
 		}
 
 		es.Close()
-		if !conn.IsClosed() {
+		if err := conn.Ping(context.Background()); err == nil {
 			t.Errorf("connection not closed")
 		}
 
@@ -49,8 +49,7 @@ func TestSession(t *testing.T) {
 		}
 	})
 
-	sm.Run(t, "Run tests with an ephemeral postgres database", func(t *testing.T, conn *pgx.Conn) {
-
+	sm.Run(t, "Run tests with an ephemeral postgres database", func(t *testing.T, conn *pgxpool.Pool) {
 		if err := conn.Ping(ctx); err != nil {
 			t.Errorf("unable to ping session: %s", err)
 			return
@@ -93,15 +92,15 @@ func TestSession(t *testing.T) {
 }
 
 func verifyTableExistence(ctx context.Context, session *EphemeralSession) error {
-	conn, err := pgx.Connect(context.Background(), session.Params.ConnectionString())
+	conn, err := pgxpool.New(context.Background(), session.Params.ConnectionString())
 	if err != nil {
 		return fmt.Errorf("failed to open pgx connection: %w", err)
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close()
 	return verifyTableExistenceWithConn(ctx, conn)
 }
 
-func verifyTableExistenceWithConn(ctx context.Context, conn *pgx.Conn) error {
+func verifyTableExistenceWithConn(ctx context.Context, conn *pgxpool.Pool) error {
 	var brand string
 	if err := conn.QueryRow(ctx, "select brand from cars;").Scan(&brand); err != nil {
 		return fmt.Errorf("unable to read from ephemeral table: %w", err)
@@ -111,4 +110,3 @@ func verifyTableExistenceWithConn(ctx context.Context, conn *pgx.Conn) error {
 	}
 	return nil
 }
-
