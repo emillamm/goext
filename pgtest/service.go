@@ -1,29 +1,29 @@
 package pgtest
 
 import (
-	"sync"
-	"github.com/emillamm/envx"
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
+	"sync"
+
+	"github.com/emillamm/envx"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-
 type Service struct {
-	sm *SessionManager
-	session *EphemeralSession
-	err error
-	env envx.EnvX
+	sm        *SessionManager
+	session   *EphemeralSession
+	err       error
+	env       envx.EnvX
 	readyChan chan struct{}
-	doneChan chan struct{}
-	doneWG sync.WaitGroup
+	doneChan  chan struct{}
+	doneWG    sync.WaitGroup
 }
 
 func NewService(env envx.EnvX) *Service {
 	return &Service{
-		env: env,
+		env:       env,
 		readyChan: make(chan struct{}),
-		doneChan: make(chan struct{}),
+		doneChan:  make(chan struct{}),
 	}
 }
 
@@ -68,7 +68,6 @@ func (s *Service) Start(ctx context.Context) {
 		s.session = nil // set to nil as we don't want Env() to return values related to this session anymore
 		s.doneWG.Done() // mark service as done
 	}()
-
 }
 
 func (s *Service) Stop() {
@@ -88,7 +87,7 @@ func (s *Service) Env() envx.EnvX {
 	return s.env
 }
 
-func (s *Service) Connect() (*pgx.Conn, error) {
+func (s *Service) Connect() (*pgxpool.Pool, error) {
 	return s.session.Connect()
 }
 
@@ -103,4 +102,3 @@ func (s *Service) WaitForDone() {
 func (s *Service) Err() error {
 	return s.err
 }
-

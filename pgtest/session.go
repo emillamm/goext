@@ -1,37 +1,37 @@
 package pgtest
 
-
 import (
-	"testing"
+	"context"
+	"database/sql"
 	"fmt"
 	"math/rand"
-	"database/sql"
+	"sync"
+	"testing"
+
 	"github.com/emillamm/envx"
 	"github.com/emillamm/goext/pg"
 	"github.com/emillamm/pgmigrate"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"context"
-	"sync"
 )
 
 type SessionManager struct {
-	Host string
-	Port int
-	db *sql.DB
+	Host     string
+	Port     int
+	db       *sql.DB
 	sessions map[*EphemeralSession]sync.Once
 }
 
 type EphemeralSession struct {
-	Params pg.ConnectionParams
-	conn *pgx.Conn
+	Params    pg.ConnectionParams
+	conn      *pgxpool.Pool
 	closeOnce sync.Once
 }
 
-func (e *EphemeralSession) Connect() (*pgx.Conn, error) {
+func (e *EphemeralSession) Connect() (*pgxpool.Pool, error) {
 	if e.conn == nil {
 		// Create pgx connection for using in the test
-		conn, err := pgx.Connect(context.Background(), e.Params.ConnectionString())
+		conn, err := pgxpool.New(context.Background(), e.Params.ConnectionString())
 		if err != nil {
 			return nil, fmt.Errorf("failed to open pgx connection: %w", err)
 		}
@@ -42,8 +42,8 @@ func (e *EphemeralSession) Connect() (*pgx.Conn, error) {
 
 func (e *EphemeralSession) Close() {
 	if e.conn != nil {
-		e.closeOnce.Do(func () {
-			e.conn.Close(context.Background())
+		e.closeOnce.Do(func() {
+			e.conn.Close()
 		})
 	}
 }
@@ -80,10 +80,10 @@ func NewSessionManager(env envx.EnvX) (*SessionManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to open legacy connection: %w", err)
 	}
-	sm :=  &SessionManager{
-		Host: connParams.Host,
-		Port: connParams.Port,
-		db: db,
+	sm := &SessionManager{
+		Host:     connParams.Host,
+		Port:     connParams.Port,
+		db:       db,
 		sessions: make(map[*EphemeralSession]sync.Once),
 	}
 	return sm, nil
@@ -92,7 +92,7 @@ func NewSessionManager(env envx.EnvX) (*SessionManager, error) {
 func (sm *SessionManager) Close() {
 	// close and cleanup all ephemeral sessions
 	if sm.sessions != nil {
-		for session, _ := range sm.sessions {
+		for session := range sm.sessions {
 			session.Close()
 			sm.Cleanup(session)
 		}
@@ -103,16 +103,15 @@ func (sm *SessionManager) Close() {
 }
 
 func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
-
 	entry := randomEntry()
 	password := "test"
 
 	params := pg.ConnectionParams{
-		Host: sm.Host,
-		Port: sm.Port,
+		Host:     sm.Host,
+		Port:     sm.Port,
 		Database: entry,
-		User: entry,
-		Pass: password,
+		User:     entry,
+		Pass:     password,
 	}
 
 	session := &EphemeralSession{
@@ -157,7 +156,6 @@ func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
 }
 
 func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
-
 	checks := envx.NewChecks()
 
 	// These defaults work with the offical postgres Docker image when running:
@@ -169,17 +167,17 @@ func LoadTestConnectionParams(env envx.EnvX) (pg.ConnectionParams, error) {
 	pass := envx.Check(env.String("POSTGRES_PASS").Default("postgres"))(checks)
 
 	params := pg.ConnectionParams{
-		Host: host,
-		Port: port,
+		Host:     host,
+		Port:     port,
 		Database: database,
-		User: user,
-		Pass: pass,
+		User:     user,
+		Pass:     pass,
 	}
 
 	return params, checks.Err()
 }
 
-func (sm *SessionManager) Run(t *testing.T, msg string, testFn func(*testing.T, *pgx.Conn))  {
+func (sm *SessionManager) Run(t *testing.T, msg string, testFn func(*testing.T, *pgxpool.Pool)) {
 	t.Run(msg, func(t *testing.T) {
 		// Create session
 		session, err := sm.NewEphemeralSession()
@@ -219,4 +217,3 @@ func randomEntry() string {
 	}
 	return fmt.Sprintf("test_%s", string(b))
 }
-
