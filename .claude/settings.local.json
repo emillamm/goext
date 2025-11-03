@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(issue-start)",
+      "Skill(issue-finalize)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
