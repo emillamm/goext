@@ -14,7 +14,6 @@ func ListenAndServe(
 	ctx context.Context,
 	server *http.Server,
 ) <-chan error {
-
 	listenChan := make(chan error)
 	errChan := make(chan error)
 
@@ -26,14 +25,14 @@ func ListenAndServe(
 	}
 
 	go func() {
-		select  {
+		select {
 		case <-ctx.Done():
 			// Forcefully shutdown server ignoring error if context expires (No graceful shutdown).
 			// In a production setting, provide context.Background() which never expires and call Shutdown(...)
 			// to gracefully shut down the server instead.
 			server.Close()
 			errChan <- fmt.Errorf("server context is done: %w", context.Cause(ctx))
-		case err := <- listenChan:
+		case err := <-listenChan:
 			errChan <- err
 		}
 	}()
@@ -59,7 +58,7 @@ func WaitForReady(
 	readyCheck func(context.Context) bool,
 ) error {
 	select {
-	case err := <- waitForReadyChan(ctx, readyCheckTimeout, readyTickInterval, readyTickTimeout, readyCheck):
+	case err := <-waitForReadyChan(ctx, readyCheckTimeout, readyTickInterval, readyTickTimeout, readyCheck):
 		return err
 	}
 }
@@ -82,13 +81,13 @@ func waitForReadyChan(
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done(): //context cancelled or expired
+			case <-ctx.Done(): // context cancelled or expired
 				errChan <- fmt.Errorf("context is done: %w", context.Cause(ctx))
 				break
 			case <-ticker.C: // it is time to perform a readycheck
 				ctx, _ := context.WithTimeout(ctx, readyCheckTimeout)
 				go func() {
-					if (readyCheck(ctx)) {
+					if readyCheck(ctx) {
 						closeDoneOnce()
 					}
 				}()
@@ -100,4 +99,3 @@ func waitForReadyChan(
 	}()
 	return errChan
 }
-

@@ -1,38 +1,38 @@
 package http
 
 import (
-	"time"
-	"net/http"
-	"sync"
-	"github.com/emillamm/envx"
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"strconv"
+	"sync"
+	"time"
+
+	"github.com/emillamm/envx"
 )
 
 type Service struct {
 	// public
-	Env envx.EnvX
-	HttpHost string
-	HttpPort int
-	Mux *http.ServeMux
-	PostShutdownHook func()
-	ReadyCheckTimeout time.Duration 	// How long a ready check is allowed to take before a timeout
-	ReadyTickInterval time.Duration 	// How long to wait before a new ready check is fired
-	ReadyTickTimeout time.Duration 		// How long to wait in total for a successful ready check
-	ShutdownTimeout time.Duration 		// How long to wait for shutdown
-	ReadyCheck func(context.Context) bool 	// Ready check to perform
+	Env               envx.EnvX
+	HttpHost          string
+	HttpPort          int
+	Mux               *http.ServeMux
+	PostShutdownHook  func()
+	ReadyCheckTimeout time.Duration              // How long a ready check is allowed to take before a timeout
+	ReadyTickInterval time.Duration              // How long to wait before a new ready check is fired
+	ReadyTickTimeout  time.Duration              // How long to wait in total for a successful ready check
+	ShutdownTimeout   time.Duration              // How long to wait for shutdown
+	ReadyCheck        func(context.Context) bool // Ready check to perform
 	// private
-	baseUrl string
-	doneChan chan struct{}
-	doneWG sync.WaitGroup
-	err error
+	baseUrl    string
+	doneChan   chan struct{}
+	doneWG     sync.WaitGroup
+	err        error
 	middleware []func(http.Handler) http.Handler
 }
 
 func NewService(env envx.EnvX) (*Service, error) {
-
 	checks := envx.NewChecks()
 
 	host := envx.Check(env.String("HTTP_HOST").Default("localhost"))(checks)
@@ -53,17 +53,17 @@ func NewService(env envx.EnvX) (*Service, error) {
 	mux := http.NewServeMux()
 
 	return &Service{
-		Env: env,
-		HttpHost: host,
-		HttpPort: port,
-		Mux: mux,
+		Env:               env,
+		HttpHost:          host,
+		HttpPort:          port,
+		Mux:               mux,
 		ReadyCheckTimeout: readyCheckTimeout,
 		ReadyTickInterval: readyTickInterval,
-		ReadyTickTimeout: readyTickTimeout,
-		ShutdownTimeout: shutdownTimeout,
-		ReadyCheck: readyCheck,
-		baseUrl: baseUrl,
-		doneChan: make(chan struct{}),
+		ReadyTickTimeout:  readyTickTimeout,
+		ShutdownTimeout:   shutdownTimeout,
+		ReadyCheck:        readyCheck,
+		baseUrl:           baseUrl,
+		doneChan:          make(chan struct{}),
 	}, nil
 }
 
@@ -79,7 +79,7 @@ func (s *Service) Start(ctx context.Context) {
 	go func() {
 		// no need to handle context.Done() on startup as that is already handled by the ListenAndServe method
 		select {
-		case err := <- ListenAndServe(ctx, srv):
+		case err := <-ListenAndServe(ctx, srv):
 			if err != nil && err != http.ErrServerClosed {
 				s.err = err
 				close(s.doneChan)
@@ -152,6 +152,7 @@ func (s *Service) HandleFunc(pattern string, handlerFunc http.HandlerFunc, middl
 	s.Handle(pattern, handlerFunc, middleware...)
 }
 
+// Add global middleware
 func (s *Service) Use(mw ...func(http.Handler) http.Handler) {
 	s.middleware = append(s.middleware, mw...)
 }
@@ -176,7 +177,7 @@ func chain(handler http.Handler, middleware ...func(http.Handler) http.Handler) 
 }
 
 func defaultReadyCheck(url string) func(context.Context) bool {
-	return func (ctx context.Context) bool {
+	return func(ctx context.Context) bool {
 		resp, err := http.Get(url)
 		if err != nil {
 			return false
@@ -199,4 +200,3 @@ func shutdown(
 	}
 	return nil
 }
-
