@@ -5,39 +5,49 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/emillamm/envx"
 )
 
 func TestServer(t *testing.T) {
-
 	ctx := context.Background()
 
-	t.Run("ListenAndServe should return ErrServerClosed if the server is closed", func (t *testing.T) {
-		ctx, _ := context.WithTimeout(ctx, 50 * time.Millisecond)
-		server := &http.Server{Addr: net.JoinHostPort("localhost", "5001")}
+	env := envx.EnvX(os.Getenv)
+	port, err := env.Int("HTTP_PORT").Default(5001)
+	if err != nil {
+		t.Errorf("could not read HTTP_PORT %v", err)
+	}
+	portStr := strconv.Itoa(port)
+
+	t.Run("ListenAndServe should return ErrServerClosed if the server is closed", func(t *testing.T) {
+		ctx, _ := context.WithTimeout(ctx, 50*time.Millisecond)
+		server := &http.Server{Addr: net.JoinHostPort("localhost", portStr)}
 		server.Close()
 		select {
-		case err:= <-ListenAndServe(ctx, server):
+		case err := <-ListenAndServe(ctx, server):
 			if !errors.Is(err, http.ErrServerClosed) {
 				t.Errorf("want ErrServerClosed, got %v", err)
 			}
 		}
 	})
 
-	t.Run("ListenAndServe should shutdown server and return DeadlineExceeded error when context expires", func (t *testing.T) {
-		ctx, _ := context.WithTimeout(ctx, 10 * time.Millisecond)
-		server := &http.Server{Addr: net.JoinHostPort("localhost", "5001")}
+	t.Run("ListenAndServe should shutdown server and return DeadlineExceeded error when context expires", func(t *testing.T) {
+		ctx, _ := context.WithTimeout(ctx, 10*time.Millisecond)
+		server := &http.Server{Addr: net.JoinHostPort("localhost", portStr)}
 		select {
-		case err:= <-ListenAndServe(ctx, server):
+		case err := <-ListenAndServe(ctx, server):
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Errorf("want DeadlineExceeded, got %v", err)
 			}
 		}
 	})
 
-	t.Run("WaitForReady should return nil error when check succeeds", func (t *testing.T) {
+	t.Run("WaitForReady should return nil error when check succeeds", func(t *testing.T) {
 		var checks atomic.Int32
 		readyCheckTimeout := 10 * time.Millisecond
 		readyTickInterval := 10 * time.Millisecond
@@ -55,7 +65,7 @@ func TestServer(t *testing.T) {
 		}
 	})
 
-	t.Run("WaitForReady should return DeadlineExceeded error when all checks failed", func (t *testing.T) {
+	t.Run("WaitForReady should return DeadlineExceeded error when all checks failed", func(t *testing.T) {
 		var checks atomic.Int32
 		readyCheckTimeout := 10 * time.Millisecond
 		readyTickInterval := 10 * time.Millisecond
@@ -74,14 +84,14 @@ func TestServer(t *testing.T) {
 	})
 
 	// This test is solely for demonstrating errors returned in the happy path when gracefully shutting down the server
-	t.Run("server.Shutdown(ctx) should return no error while ListenAndServe returns ErrServerClosed", func (t *testing.T) {
-		ctx, _ := context.WithTimeout(ctx, 50 * time.Millisecond)
-		server := &http.Server{Addr: net.JoinHostPort("localhost", "5001")}
+	t.Run("server.Shutdown(ctx) should return no error while ListenAndServe returns ErrServerClosed", func(t *testing.T) {
+		ctx, _ := context.WithTimeout(ctx, 50*time.Millisecond)
+		server := &http.Server{Addr: net.JoinHostPort("localhost", portStr)}
 		done := make(chan struct{})
 		go func() {
 			select {
 			// start server
-			case err:= <-ListenAndServe(ctx, server):
+			case err := <-ListenAndServe(ctx, server):
 				if !errors.Is(err, http.ErrServerClosed) {
 					t.Errorf("want ErrServerClosed, got %#v", err)
 				}
@@ -89,7 +99,7 @@ func TestServer(t *testing.T) {
 				close(done)
 			}
 		}()
-		shutdownCtx, _ := context.WithTimeout(ctx, 10 * time.Millisecond)
+		shutdownCtx, _ := context.WithTimeout(ctx, 10*time.Millisecond)
 		// gracefully shut down the server
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			t.Errorf("shutdown returned error: %v", err)
@@ -101,4 +111,3 @@ func TestServer(t *testing.T) {
 		}
 	})
 }
-

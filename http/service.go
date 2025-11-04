@@ -28,6 +28,7 @@ type Service struct {
 	doneChan chan struct{}
 	doneWG sync.WaitGroup
 	err error
+	middleware []func(http.Handler) http.Handler
 }
 
 func NewService(env envx.EnvX) (*Service, error) {
@@ -71,7 +72,7 @@ func (s *Service) Start(ctx context.Context) {
 
 	srv := &http.Server{
 		Addr:    net.JoinHostPort(s.HttpHost, strconv.Itoa(s.HttpPort)),
-		Handler: s.Mux,
+		Handler: s.buildHandler(),
 	}
 
 	// start server
@@ -97,7 +98,9 @@ func (s *Service) Start(ctx context.Context) {
 		if err := shutdown(ctx, srv, s.ShutdownTimeout); err != nil {
 			s.err = err
 		}
-		s.PostShutdownHook()
+		if s.PostShutdownHook != nil {
+			s.PostShutdownHook()
+		}
 		s.doneWG.Done() // mark service as done
 	}()
 }
@@ -140,8 +143,17 @@ func (s *Service) Err() error {
 	return s.err
 }
 
-func (s *Service) Handle(pattern string, handler http.Handler) {
-	s.Mux.Handle(pattern, handler)
+func (s *Service) Handle(pattern string, handler http.Handler, middleware ...func(http.Handler) http.Handler) {
+	wrapped := chain(handler, middleware...)
+	s.Mux.Handle(pattern, wrapped)
+}
+
+func (s *Service) HandleFunc(pattern string, handlerFunc http.HandlerFunc, middleware ...func(http.Handler) http.Handler) {
+	s.Handle(pattern, handlerFunc, middleware...)
+}
+
+func (s *Service) Use(mw ...func(http.Handler) http.Handler) {
+	s.middleware = append(s.middleware, mw...)
 }
 
 func (s *Service) PostShutdown(postShutdownHook func()) {
@@ -150,6 +162,17 @@ func (s *Service) PostShutdown(postShutdownHook func()) {
 
 func (s *Service) BaseUrl() string {
 	return s.baseUrl
+}
+
+func (s *Service) buildHandler() http.Handler {
+	return chain(s.Mux, s.middleware...)
+}
+
+func chain(handler http.Handler, middleware ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(middleware) - 1; i >= 0; i-- {
+		handler = middleware[i](handler)
+	}
+	return handler
 }
 
 func defaultReadyCheck(url string) func(context.Context) bool {
