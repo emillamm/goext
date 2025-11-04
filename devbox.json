@@ -1,0 +1,16 @@
+{
+    "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
+    "packages": [
+      "go@1.24.7"
+    ],
+    "env": {
+	    "HTTP_PORT": "5008"
+    },
+    "shell": {
+      "init_hook": [],
+      "scripts": {
+        "test": "go test ./..."
+      }
+    }
+}
+  
