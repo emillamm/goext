@@ -26,10 +26,10 @@ plaintext, err := secure.DecryptSymmetricString(os.Getenv, ciphertextStr)
 
 ## Environment Variable
 
-Set `SECURE_KEY` as a base64-encoded 32-byte (256-bit) key:
+Set `AES_GCM_KEY` as a base64-encoded 32-byte (256-bit) key:
 
 ```bash
-export SECURE_KEY="your-base64-encoded-key-here"
+export AES_GCM_KEY="your-base64-encoded-key-here"
 ```
 
 ## Generate Random Key

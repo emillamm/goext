@@ -10,7 +10,7 @@ import (
 // mockEnv creates a mock environment function for testing
 func mockEnv(key string) func(string) string {
 	return func(envKey string) string {
-		if envKey == "SECURE_KEY" {
+		if envKey == "AES_GCM_KEY" {
 			return key
 		}
 		return ""

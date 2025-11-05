@@ -20,11 +20,11 @@ var (
 )
 
 // EncryptSymmetric encrypts plaintext data using AES-256-GCM
-// The encryption key is loaded from the SECURE_KEY environment variable (base64 encoded)
+// The encryption key is loaded from the AES_GCM_KEY environment variable (base64 encoded)
 // Returns ciphertext with prepended nonce
 func EncryptSymmetric(env envx.EnvX, plaintext []byte) ([]byte, error) {
 	// Get encryption key from environment
-	keyB64 := env("SECURE_KEY")
+	keyB64 := env("AES_GCM_KEY")
 	if keyB64 == "" {
 		return nil, ErrMissingKey
 	}
@@ -66,11 +66,11 @@ func EncryptSymmetric(env envx.EnvX, plaintext []byte) ([]byte, error) {
 }
 
 // DecryptSymmetric decrypts ciphertext data using AES-256-GCM
-// The encryption key is loaded from the SECURE_KEY environment variable (base64 encoded)
+// The encryption key is loaded from the AES_GCM_KEY environment variable (base64 encoded)
 // Expects ciphertext with prepended nonce
 func DecryptSymmetric(env envx.EnvX, ciphertext []byte) ([]byte, error) {
 	// Get encryption key from environment
-	keyB64 := env("SECURE_KEY")
+	keyB64 := env("AES_GCM_KEY")
 	if keyB64 == "" {
 		return nil, ErrMissingKey
 	}
