@@ -20,6 +20,11 @@ const (
 	deviceIDKey contextKey = "device_id"
 )
 
+var (
+	ErrNoUserId   = errors.New("user_id is not attached to context")
+	ErrNoDeviceId = errors.New("device_id is not attached to context")
+)
+
 // JWTAuth is a middleware that extracts and verifies JWT tokens from the Authorization header.
 //
 // Behavior:
@@ -93,14 +98,20 @@ func JWTAuth(env envx.EnvX, errorLog func(error)) func(http.Handler) http.Handle
 
 // GetUserID extracts the user ID from the request context.
 // Returns the user ID and true if found, otherwise returns zero UUID and false.
-func GetUserID(ctx context.Context) (uuid.UUID, bool) {
-	userID, ok := ctx.Value(userIDKey).(uuid.UUID)
-	return userID, ok
+func GetUserID(ctx context.Context) (userId uuid.UUID, err error) {
+	userId, ok := ctx.Value(userIDKey).(uuid.UUID)
+	if !ok {
+		err = ErrNoUserId
+	}
+	return
 }
 
 // GetDeviceID extracts the device ID from the request context.
 // Returns the device ID and true if found, otherwise returns empty string and false.
-func GetDeviceID(ctx context.Context) (string, bool) {
-	deviceID, ok := ctx.Value(deviceIDKey).(string)
-	return deviceID, ok
+func GetDeviceID(ctx context.Context) (deviceId string, err error) {
+	deviceId, ok := ctx.Value(deviceIDKey).(string)
+	if !ok {
+		err = ErrNoDeviceId
+	}
+	return
 }

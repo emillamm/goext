@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -40,17 +41,17 @@ func generateTestKeys() (privateKeyB64, publicKeyB64 string) {
 // createTestHandler returns a handler that checks context values
 func createTestHandler(t *testing.T, expectedUserID uuid.UUID, expectedDeviceID string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := GetUserID(r.Context())
-		if !ok {
-			t.Error("expected user ID in context")
+		userID, err := GetUserID(r.Context())
+		if err != nil {
+			t.Errorf("expected user ID in context: %v", err)
 		}
 		if userID != expectedUserID {
 			t.Errorf("expected user ID %v, got %v", expectedUserID, userID)
 		}
 
-		deviceID, ok := GetDeviceID(r.Context())
-		if !ok {
-			t.Error("expected device ID in context")
+		deviceID, err := GetDeviceID(r.Context())
+		if err != nil {
+			t.Errorf("expected device ID in context: %v", err)
 		}
 		if deviceID != expectedDeviceID {
 			t.Errorf("expected device ID %s, got %s", expectedDeviceID, deviceID)
@@ -372,17 +373,17 @@ func TestJWTAuth_BearerCaseInsensitive(t *testing.T) {
 
 func TestGetUserID_NotInContext(t *testing.T) {
 	ctx := context.Background()
-	_, ok := GetUserID(ctx)
-	if ok {
-		t.Error("expected GetUserID to return false for empty context")
+	_, err := GetUserID(ctx)
+	if !errors.Is(err, ErrNoUserId) {
+		t.Error("expected GetUserID to return error ErrNoUserId for empty context")
 	}
 }
 
 func TestGetDeviceID_NotInContext(t *testing.T) {
 	ctx := context.Background()
-	_, ok := GetDeviceID(ctx)
-	if ok {
-		t.Error("expected GetDeviceID to return false for empty context")
+	_, err := GetDeviceID(ctx)
+	if !errors.Is(err, ErrNoDeviceId) {
+		t.Error("expected GetDeviceID to return error ErrNoDeviceId for empty context")
 	}
 }
 
@@ -390,9 +391,9 @@ func TestGetUserID_InContext(t *testing.T) {
 	expectedUserID := uuid.New()
 	ctx := context.WithValue(context.Background(), userIDKey, expectedUserID)
 
-	userID, ok := GetUserID(ctx)
-	if !ok {
-		t.Error("expected GetUserID to return true")
+	userID, err := GetUserID(ctx)
+	if err != nil {
+		t.Errorf("expected GetUserID to return no error, but it returned: %v", err)
 	}
 	if userID != expectedUserID {
 		t.Errorf("expected user ID %v, got %v", expectedUserID, userID)
@@ -403,9 +404,9 @@ func TestGetDeviceID_InContext(t *testing.T) {
 	expectedDeviceID := "device-123"
 	ctx := context.WithValue(context.Background(), deviceIDKey, expectedDeviceID)
 
-	deviceID, ok := GetDeviceID(ctx)
-	if !ok {
-		t.Error("expected GetDeviceID to return true")
+	deviceID, err := GetDeviceID(ctx)
+	if err != nil {
+		t.Errorf("expected GetDeviceID to return no error, but it returned: %v", err)
 	}
 	if deviceID != expectedDeviceID {
 		t.Errorf("expected device ID %s, got %s", expectedDeviceID, deviceID)
