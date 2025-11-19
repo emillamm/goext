@@ -2,16 +2,17 @@ package pg
 
 import (
 	"fmt"
-	"github.com/emillamm/envx"
 	"strconv"
+
+	"github.com/emillamm/envx"
 )
 
 type ConnectionParams struct {
-	Host string
-	Port int
+	Host     string
+	Port     int
 	Database string
-	User string
-	Pass string
+	User     string
+	Pass     string
 }
 
 func (c ConnectionParams) ConnectionString() string {
@@ -19,28 +20,27 @@ func (c ConnectionParams) ConnectionString() string {
 }
 
 func LoadConnectionParams(env envx.EnvX) (ConnectionParams, error) {
-
 	checks := envx.NewChecks()
 
 	host := envx.Check(env.String("POSTGRES_HOST").Default("localhost"))(checks)
 	port := envx.Check(env.Int("POSTGRES_PORT").Default(5432))(checks)
 	database := envx.Check(env.String("POSTGRES_DATABASE").Value())(checks)
-	user := envx.Check(env.String("POSTGRES_USER").Value())(checks)
-	pass := envx.Check(env.String("POSTGRES_PASS").Value())(checks)
+	user := envx.Check(env.String("POSTGRES_USER").Default(""))(checks)
+	pass := envx.Check(env.String("POSTGRES_PASS").Default(""))(checks)
 
 	params := ConnectionParams{
-		Host: host,
-		Port: port,
+		Host:     host,
+		Port:     port,
 		Database: database,
-		User: user,
-		Pass: pass,
+		User:     user,
+		Pass:     pass,
 	}
 
 	return params, checks.Err()
 }
 
 func (c ConnectionParams) EnvOverwrite(env envx.EnvX) envx.EnvX {
-	return func (name string) string {
+	return func(name string) string {
 		switch name {
 		case "POSTGRES_HOST":
 			return c.Host
@@ -57,4 +57,3 @@ func (c ConnectionParams) EnvOverwrite(env envx.EnvX) envx.EnvX {
 		}
 	}
 }
-
