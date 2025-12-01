@@ -3,8 +3,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/emillamm/envx v0.1.15 h1:mdJnYrwbe938c7CsgPBdfWHW0t4GIpSQnc8jwtHO6Gc=
 github.com/emillamm/envx v0.1.15/go.mod h1:oBeIVATgr0HXNunxkInv2PRnnDCpN7r0sF68z8lf/5Y=
-github.com/emillamm/pgmigrate v0.0.17 h1:LhS9ay0B29+rk5M6jqDHohWMR6AQw1iaVaWOgCVDU5Y=
-github.com/emillamm/pgmigrate v0.0.17/go.mod h1:t00XYsUtPRA74Yj2lcg1eK6G0itTp2ZDQ9zqwKF2QvI=
+github.com/emillamm/pgmigrate v0.0.18 h1:4Qvk5PoTKsol8U0iQX38Q5uu5ju4Y+IcV534rbGLfjY=
+github.com/emillamm/pgmigrate v0.0.18/go.mod h1:t00XYsUtPRA74Yj2lcg1eK6G0itTp2ZDQ9zqwKF2QvI=
 github.com/golang-jwt/jwt/v5 v5.3.0 h1:pv4AsKCKKZuqlgs5sUmn4x8UlGa0kEVt/puTpKx9vvo=
 github.com/golang-jwt/jwt/v5 v5.3.0/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
