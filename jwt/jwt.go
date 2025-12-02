@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/emillamm/envx"
+	"github.com/emillamm/goext/uuid"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // Sentinel errors for JWT verification failures

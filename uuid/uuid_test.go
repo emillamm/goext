@@ -30,21 +30,21 @@ func TestParse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to parse shortuuid: %v", err)
 		}
-		if parsed.GUUID() != original.GUUID() {
-			t.Errorf("expected %v, got %v", original.GUUID(), parsed.GUUID())
+		if parsed.Underlying() != original.Underlying() {
+			t.Errorf("expected %v, got %v", original.Underlying(), parsed.Underlying())
 		}
 	})
 
 	t.Run("google uuid format", func(t *testing.T) {
 		original := New()
-		googleStr := original.GUUID().String()
+		googleStr := original.Underlying().String()
 
 		parsed, err := Parse(googleStr)
 		if err != nil {
 			t.Fatalf("failed to parse google uuid: %v", err)
 		}
-		if parsed.GUUID() != original.GUUID() {
-			t.Errorf("expected %v, got %v", original.GUUID(), parsed.GUUID())
+		if parsed.Underlying() != original.Underlying() {
+			t.Errorf("expected %v, got %v", original.Underlying(), parsed.Underlying())
 		}
 	})
 
@@ -60,8 +60,8 @@ func TestMustParse(t *testing.T) {
 	t.Run("valid input", func(t *testing.T) {
 		u := New()
 		result := MustParse(u.String())
-		if result.GUUID() != u.GUUID() {
-			t.Errorf("expected %v, got %v", u.GUUID(), result.GUUID())
+		if result.Underlying() != u.Underlying() {
+			t.Errorf("expected %v, got %v", u.Underlying(), result.Underlying())
 		}
 	})
 
@@ -88,8 +88,8 @@ func TestValueAndScan(t *testing.T) {
 		t.Fatalf("Scan() failed: %v", err)
 	}
 
-	if scanned.GUUID() != original.GUUID() {
-		t.Errorf("expected %v, got %v", original.GUUID(), scanned.GUUID())
+	if scanned.Underlying() != original.Underlying() {
+		t.Errorf("expected %v, got %v", original.Underlying(), scanned.Underlying())
 	}
 }
 
@@ -113,8 +113,8 @@ func TestScanErrors(t *testing.T) {
 		if err := u.Scan([]byte(original.String())); err != nil {
 			t.Fatalf("Scan([]byte) failed: %v", err)
 		}
-		if u.GUUID() != original.GUUID() {
-			t.Errorf("expected %v, got %v", original.GUUID(), u.GUUID())
+		if u.Underlying() != original.Underlying() {
+			t.Errorf("expected %v, got %v", original.Underlying(), u.Underlying())
 		}
 	})
 }

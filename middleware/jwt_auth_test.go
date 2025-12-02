@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/emillamm/goext/jwt"
+	"github.com/emillamm/goext/uuid"
 	jwtlib "github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // mockEnv creates a mock environment function for testing

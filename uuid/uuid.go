@@ -22,7 +22,7 @@ func (u UUID) String() string {
 	return shortuuid.DefaultEncoder.Encode(guuid.UUID(u))
 }
 
-func (u UUID) GUUID() guuid.UUID {
+func (u UUID) Underlying() guuid.UUID {
 	return guuid.UUID(u)
 }
 

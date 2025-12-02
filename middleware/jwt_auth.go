@@ -9,7 +9,7 @@ import (
 
 	"github.com/emillamm/envx"
 	"github.com/emillamm/goext/jwt"
-	"github.com/google/uuid"
+	"github.com/emillamm/goext/uuid"
 )
 
 // contextKey is an unexported type for context keys to avoid collisions

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emillamm/goext/uuid"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // mockEnv creates a mock environment function for testing
