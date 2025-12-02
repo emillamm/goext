@@ -49,9 +49,12 @@ func TestParse(t *testing.T) {
 	})
 
 	t.Run("invalid length", func(t *testing.T) {
-		_, err := Parse("invalid")
+		u, err := Parse("invalid")
 		if err == nil {
 			t.Fatal("expected error for invalid length")
+		}
+		if u != Nil {
+			t.Fatal("expected nil type")
 		}
 	})
 }

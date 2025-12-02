@@ -12,6 +12,9 @@ import (
 // It is a type definition of google's uuid.UUID but encodes/decodes to a 22-character base57 string for database I/O.
 type UUID guuid.UUID
 
+// Nil type (all zeros)
+var Nil UUID
+
 // New generates a new random UUID.
 func New() UUID {
 	return UUID(guuid.New())
