@@ -9,7 +9,7 @@ import (
 )
 
 // UUID wraps google's uuid.UUID and provides serialization using shortuuid encoding.
-// It stores the UUID internally but encodes/decodes to a 22-character base57 string for database I/O.
+// It is a type definition of google's uuid.UUID but encodes/decodes to a 22-character base57 string for database I/O.
 type UUID guuid.UUID
 
 // New generates a new random UUID.
