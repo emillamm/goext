@@ -3,6 +3,7 @@ module github.com/emillamm/goext
 go 1.24.9
 
 require (
+	connectrpc.com/connect v1.19.1
 	github.com/emillamm/envx v0.1.15
 	github.com/emillamm/pgmigrate v0.0.20
 	github.com/golang-jwt/jwt/v5 v5.3.0
@@ -18,4 +19,5 @@ require (
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
+	google.golang.org/protobuf v1.36.9 // indirect
 )
