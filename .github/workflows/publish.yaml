@@ -13,8 +13,6 @@ jobs:
       contents: write
       packages: read
     runs-on: ubuntu-latest
-  test:
-    runs-on: ubuntu-latest
     steps:
       - id: checkout
         uses: actions/checkout@v6
