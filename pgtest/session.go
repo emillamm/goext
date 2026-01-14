@@ -16,10 +16,11 @@ import (
 )
 
 type SessionManager struct {
-	Host     string
-	Port     int
-	db       *sql.DB
-	sessions map[*EphemeralSession]sync.Once
+	Host         string
+	Port         int
+	MigrationDir string
+	db           *sql.DB
+	sessions     map[*EphemeralSession]sync.Once
 }
 
 type EphemeralSession struct {
@@ -80,11 +81,17 @@ func NewSessionManager(env envx.EnvX) (*SessionManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to open legacy connection: %w", err)
 	}
+	// Convention: migrations folder generally exists two levels up from db tests.
+	migrationDir, err := env.String("MIGRATION_DIR").Value()
+	if err != nil {
+		return nil, fmt.Errorf("could not read variable MIGRATION_DIR: %v", err)
+	}
 	sm := &SessionManager{
-		Host:     connParams.Host,
-		Port:     connParams.Port,
-		db:       db,
-		sessions: make(map[*EphemeralSession]sync.Once),
+		Host:         connParams.Host,
+		Port:         connParams.Port,
+		MigrationDir: migrationDir,
+		db:           db,
+		sessions:     make(map[*EphemeralSession]sync.Once),
 	}
 	return sm, nil
 }
@@ -142,8 +149,7 @@ func (sm *SessionManager) NewEphemeralSession() (*EphemeralSession, error) {
 	defer migrationDb.Close()
 
 	// Perform migrations
-	// Convention: migrations folder always exists one level up from db tests.
-	provider := pgmigrate.FileMigrationProvider{Directory: "../migrations"}
+	provider := pgmigrate.FileMigrationProvider{Directory: sm.MigrationDir}
 	migrations := provider.GetMigrations()
 	_, err = pgmigrate.RunMigrations(migrationDb, migrations, 0)
 	if err != nil {

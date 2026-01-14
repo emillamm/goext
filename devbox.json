@@ -4,6 +4,7 @@
       "go@1.24"
     ],
     "env": {
+	    "MIGRATION_DIR": "$DEVBOX_PROJECT_ROOT/migrations",
 	    "HTTP_PORT": "5008"
     },
     "shell": {
