@@ -1,17 +1,44 @@
 {
-    "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
-    "packages": [
-      "go@1.24"
+	"$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
+	"packages": {
+		"go": "1.25.1",
+		"cue":           "0.15.1",
+		"postgresql_17": "latest"
+	},
+	"env": {
+		"CUE_REGISTRY": "github.com/emillamm/cuefig=ghcr.io/emillamm,registry.cue.works",
+		"MIGRATION_DIR": "$DEVBOX_PROJECT_ROOT/migrations",
+		"HTTP_PORT": "5008",
+		"POSTGRES_PORT":                 "5432",
+		"POSTGRES_DATABASE":             "goext",
+		"POSTGRES_USER":                 "postgres",
+		"POSTGRES_PASS":                 "postgres",
+		"GOBIN":                         "$DEVBOX_PROJECT_ROOT/.devbox/bin",
+		"PATH":                          "$DEVBOX_PROJECT_ROOT/.devbox/bin:$PATH"
+	},
+	"shell": {
+		"init_hook": [
+			"export POSTGRES_HOST=$PGHOST",
+			"export POSTGRES_PASSWORD=$POSTGRES_PASS",
+			"go install github.com/emillamm/pgmigrate/cmd/pgmigrate@v0.0.20"
     ],
-    "env": {
-	    "MIGRATION_DIR": "$DEVBOX_PROJECT_ROOT/migrations",
-	    "HTTP_PORT": "5008"
-    },
-    "shell": {
-      "init_hook": [],
-      "scripts": {
-        "test": "go test ./..."
-      }
+    "scripts": {
+	    "init":     "./scripts/db-init.sh",
+	    "clean":    "./scripts/db-clean.sh",
+	    "migrate":  "./scripts/db-migrate.sh",
+	    "reset":    "./scripts/db-reset.sh",
+	    "test": "go test ./...",
+	    "ci": [
+		    "devbox run init",
+		    "devbox run migrate",
+		    "devbox services start postgresql",
+		    "devbox run test"
+	    ],
+	    "cue-deps": [
+		    "cue mod get github.com/emillamm/cuefig@v0"
+	    ],
+	    "cue-gen": "./cuefig/generate/generate.sh"
     }
+	}
 }
-  
+
