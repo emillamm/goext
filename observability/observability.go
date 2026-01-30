@@ -129,6 +129,11 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 		propagation.Baggage{},
 	))
 
+	// Set error handler for export failures (e.g., collector unreachable)
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		slog.Error("opentelemetry error", "error", err)
+	}))
+
 	// Determine log level: use configured value or default based on environment
 	var logLevel slog.Level
 	var handler slog.Handler

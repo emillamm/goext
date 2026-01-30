@@ -190,15 +190,41 @@ func ProcessPayment(ctx context.Context, orderID string, amount float64) error {
 }
 ```
 
-### Use Descriptive Span Names
+### Tracer and Span Naming Convention
 
-Span names should describe the operation, not include variable data:
+**Tracer name**: Use the full package path (e.g., `myservice/app/payments`). This identifies the instrumentation scope.
+
+**Span name**: Use just the operation/function name (e.g., `ProcessPayment`). Don't repeat the package name since the tracer already provides that context.
 
 ```go
-// Good - operation name only
-tracer.Start(ctx, "ProcessOrder")
-tracer.Start(ctx, "SendEmail")
-tracer.Start(ctx, "db.QueryUsers")
+const tracerName = "myservice/app/payments"
+
+func ProcessPayment(ctx context.Context, orderID string) error {
+    tracer := otel.Tracer(tracerName)
+
+    // Good - operation name only, tracer provides package context
+    ctx, span := tracer.Start(ctx, "ProcessPayment")
+
+    // Avoid - redundant package prefix
+    ctx, span := tracer.Start(ctx, "payments.ProcessPayment")
+}
+```
+
+This produces clean traces:
+```
+Tracer: myservice/app/payments
+  Span: ProcessPayment
+```
+
+### Avoid Variable Data in Span Names
+
+Span names should be static. Use attributes for variable data:
+
+```go
+// Good - static name, variable data in attributes
+tracer.Start(ctx, "ProcessOrder",
+    trace.WithAttributes(attribute.String("order_id", orderID)),
+)
 
 // Bad - includes variable data (causes high cardinality)
 tracer.Start(ctx, fmt.Sprintf("ProcessOrder-%s", orderID))
@@ -460,5 +486,7 @@ Before deploying, verify:
 - [ ] Logs use `*Context` methods for trace correlation
 - [ ] No sensitive data in logs or span attributes
 - [ ] Appropriate log levels are used
-- [ ] Span names are descriptive but don't include variable data
+- [ ] Tracer names use full package path (e.g., `myservice/app/payments`)
+- [ ] Span names are operation only, no package prefix (e.g., `ProcessPayment` not `payments.ProcessPayment`)
+- [ ] Span names don't include variable data (use attributes instead)
 - [ ] OTLP endpoint is configured for non-local environments
