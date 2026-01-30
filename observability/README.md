@@ -45,6 +45,7 @@ func main() {
 | `OTEL_SERVICE_VERSION` | Service version | `0.0.0` |
 | `OTEL_ENVIRONMENT` | Environment name (local, dev, staging, production) | `local` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317`) | empty (stdout mode) |
+| `LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error` | `debug` (local) / `info` (production) |
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via gRPC and logs use JSON format.
 
@@ -331,7 +332,9 @@ func SendNotification(ctx context.Context, userID, message string) error {
 
 ## Kafka Tracing (with mika)
 
-When using Kafka with the mika library, use the provided tracing functions:
+When using Kafka with the mika library, use the tracing functions provided by mika.
+
+> **Note:** Use `mika.SetSpanError()` and `mika.SetSpanOK()` for Kafka consumer/producer code. The mika library provides its own span helpers to remain independent of goext. For non-Kafka code, use `observability.SetSpanError()` and `observability.SetSpanOK()`.
 
 ### Producer Side
 

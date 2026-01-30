@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/emillamm/envx"
@@ -27,6 +28,7 @@ type Config struct {
 	ServiceVersion string
 	Environment    string // "local", "dev", "staging", "production"
 	OTLPEndpoint   string // OTLP collector endpoint (e.g., "localhost:4317")
+	LogLevel       string // "debug", "info", "warn", "error" (optional, defaults based on environment)
 }
 
 // Provider wraps the trace provider and logger for cleanup.
@@ -44,6 +46,7 @@ func LoadConfig(env envx.EnvX) (Config, error) {
 	serviceVersion := envx.Check(env.String("OTEL_SERVICE_VERSION").Default("0.0.0"))(checks)
 	environment := envx.Check(env.String("OTEL_ENVIRONMENT").Default("local"))(checks)
 	otlpEndpoint := envx.Check(env.String("OTEL_EXPORTER_OTLP_ENDPOINT").Default(""))(checks)
+	logLevel := envx.Check(env.String("LOG_LEVEL").Default(""))(checks)
 
 	if err := checks.Err(); err != nil {
 		return Config{}, err
@@ -54,7 +57,27 @@ func LoadConfig(env envx.EnvX) (Config, error) {
 		ServiceVersion: serviceVersion,
 		Environment:    environment,
 		OTLPEndpoint:   otlpEndpoint,
+		LogLevel:       logLevel,
 	}, nil
+}
+
+// parseLogLevel converts a string log level to slog.Level.
+// Returns the parsed level and true if valid, or the default level and false if invalid/empty.
+func parseLogLevel(level string, defaultLevel slog.Level) (slog.Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	case "":
+		return defaultLevel, false
+	default:
+		return defaultLevel, false
+	}
 }
 
 // New creates a new observability provider with tracing and logging configured.
@@ -106,18 +129,21 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 		propagation.Baggage{},
 	))
 
-	// Create logger with trace context support
+	// Determine log level: use configured value or default based on environment
+	var logLevel slog.Level
 	var handler slog.Handler
 	if config.OTLPEndpoint != "" {
-		// Production: JSON output for log aggregation
+		// Production: JSON output for log aggregation, default to info
+		logLevel, _ = parseLogLevel(config.LogLevel, slog.LevelInfo)
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level:     slog.LevelInfo,
+			Level:     logLevel,
 			AddSource: true,
 		})
 	} else {
-		// Local: human-readable text output
+		// Local: human-readable text output, default to debug
+		logLevel, _ = parseLogLevel(config.LogLevel, slog.LevelDebug)
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level:     slog.LevelDebug,
+			Level:     logLevel,
 			AddSource: true,
 		})
 	}

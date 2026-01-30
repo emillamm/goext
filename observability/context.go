@@ -2,7 +2,6 @@ package observability
 
 import (
 	"context"
-	"log/slog"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -41,41 +40,6 @@ func AddSpanAttributes(span trace.Span, attrs ...attribute.KeyValue) {
 	span.SetAttributes(attrs...)
 }
 
-// LogWithSpan logs a message with trace context from the span.
-func LogWithSpan(ctx context.Context, level slog.Level, msg string, attrs ...any) {
-	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
-		attrs = append(attrs,
-			"trace_id", span.SpanContext().TraceID().String(),
-			"span_id", span.SpanContext().SpanID().String(),
-		)
-	}
-	slog.Log(ctx, level, msg, attrs...)
-}
-
-// LogInfo logs an info message with trace context.
-func LogInfo(ctx context.Context, msg string, attrs ...any) {
-	LogWithSpan(ctx, slog.LevelInfo, msg, attrs...)
-}
-
-// LogDebug logs a debug message with trace context.
-func LogDebug(ctx context.Context, msg string, attrs ...any) {
-	LogWithSpan(ctx, slog.LevelDebug, msg, attrs...)
-}
-
-// LogWarn logs a warning message with trace context.
-func LogWarn(ctx context.Context, msg string, attrs ...any) {
-	LogWithSpan(ctx, slog.LevelWarn, msg, attrs...)
-}
-
-// LogError logs an error message with trace context.
-func LogError(ctx context.Context, msg string, err error, attrs ...any) {
-	if err != nil {
-		attrs = append(attrs, "error", err.Error())
-	}
-	LogWithSpan(ctx, slog.LevelError, msg, attrs...)
-}
-
 // TraceID returns the trace ID from the context, or empty string if not present.
 func TraceID(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
@@ -92,16 +56,4 @@ func SpanID(ctx context.Context) string {
 		return span.SpanContext().SpanID().String()
 	}
 	return ""
-}
-
-// WithTraceAttrs returns a logger with trace context attributes added.
-func WithTraceAttrs(ctx context.Context, logger *slog.Logger) *slog.Logger {
-	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
-		return logger.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-	}
-	return logger
 }
