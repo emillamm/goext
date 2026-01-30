@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/emillamm/envx"
+	"github.com/emillamm/goext/environment"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
@@ -26,7 +27,7 @@ import (
 type Config struct {
 	ServiceName    string
 	ServiceVersion string
-	Environment    string // "local", "dev", "staging", "production"
+	Environment    environment.Environment
 	OTLPEndpoint   string // OTLP collector endpoint (e.g., "localhost:4317")
 	LogLevel       string // "debug", "info", "warn", "error" (optional, defaults based on environment)
 }
@@ -39,23 +40,31 @@ type Provider struct {
 }
 
 // LoadConfig loads observability configuration from environment variables.
+// Environment variables:
+//   - SERVICE_NAME: Service name (default: "unknown-service")
+//   - SERVICE_VERSION: Service version (default: "0.0.0")
+//   - ENVIRONMENT: Environment type, "prod" or "local" (required, loaded via environment package)
+//   - OTLP_ENDPOINT: OTLP collector endpoint (default: "", uses stdout tracing when empty)
+//   - LOG_LEVEL: Log level "debug", "info", "warn", "error" (optional, defaults based on environment)
 func LoadConfig(env envx.EnvX) (Config, error) {
 	checks := envx.NewChecks()
 
-	serviceName := envx.Check(env.String("OTEL_SERVICE_NAME").Default("unknown-service"))(checks)
-	serviceVersion := envx.Check(env.String("OTEL_SERVICE_VERSION").Default("0.0.0"))(checks)
-	environment := envx.Check(env.String("OTEL_ENVIRONMENT").Default("local"))(checks)
-	otlpEndpoint := envx.Check(env.String("OTEL_EXPORTER_OTLP_ENDPOINT").Default(""))(checks)
+	serviceName := envx.Check(env.String("SERVICE_NAME").Default("unknown-service"))(checks)
+	serviceVersion := envx.Check(env.String("SERVICE_VERSION").Default("0.0.0"))(checks)
+	otlpEndpoint := envx.Check(env.String("OTLP_ENDPOINT").Default(""))(checks)
 	logLevel := envx.Check(env.String("LOG_LEVEL").Default(""))(checks)
 
 	if err := checks.Err(); err != nil {
 		return Config{}, err
 	}
 
+	// Load environment using the environment package (will panic if invalid)
+	environ := environment.LoadEnvironment(env)
+
 	return Config{
 		ServiceName:    serviceName,
 		ServiceVersion: serviceVersion,
-		Environment:    environment,
+		Environment:    environ,
 		OTLPEndpoint:   otlpEndpoint,
 		LogLevel:       logLevel,
 	}, nil
@@ -90,7 +99,7 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 		semconv.SchemaURL,
 		semconv.ServiceName(config.ServiceName),
 		semconv.ServiceVersion(config.ServiceVersion),
-		semconv.DeploymentEnvironment(config.Environment),
+		semconv.DeploymentEnvironment(config.Environment.String()),
 		semconv.TelemetrySDKLanguageGo,
 		semconv.TelemetrySDKName("opentelemetry"),
 	)
@@ -159,7 +168,7 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 	logger := slog.New(handler).With(
 		slog.String("service", config.ServiceName),
 		slog.String("version", config.ServiceVersion),
-		slog.String("env", config.Environment),
+		slog.String("env", config.Environment.String()),
 	)
 
 	// Set as default logger

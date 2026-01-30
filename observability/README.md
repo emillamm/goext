@@ -41,13 +41,13 @@ func main() {
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OTEL_SERVICE_NAME` | Service name for traces and logs | `unknown-service` |
-| `OTEL_SERVICE_VERSION` | Service version | `0.0.0` |
-| `OTEL_ENVIRONMENT` | Environment name (local, dev, staging, production) | `local` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317`) | empty (stdout mode) |
+| `SERVICE_NAME` | Service name for traces and logs | `unknown-service` |
+| `SERVICE_VERSION` | Service version | `0.0.0` |
+| `ENVIRONMENT` | Environment type: `prod` or `local` | required |
+| `OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317`) | empty (stdout mode) |
 | `LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error` | `debug` (local) / `info` (production) |
 
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via gRPC and logs use JSON format.
+When `OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via gRPC and logs use JSON format.
 
 ---
 
@@ -455,6 +455,8 @@ func setupRPC(mux *http.ServeMux) error {
 In tests, you can skip observability initialization or use a no-op configuration:
 
 ```go
+import "github.com/emillamm/goext/environment"
+
 func TestMyFunction(t *testing.T) {
     ctx := context.Background()
 
@@ -464,7 +466,7 @@ func TestMyFunction(t *testing.T) {
     // Option 2: Initialize with test config
     config := observability.Config{
         ServiceName: "test-service",
-        Environment: "test",
+        Environment: environment.Local,
         // Empty OTLP endpoint = stdout mode
     }
     provider, _ := observability.New(ctx, config)
