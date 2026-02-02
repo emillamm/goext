@@ -1,7 +1,12 @@
-package integrationtest
+package service
 
-import "context"
+import (
+	"context"
 
+	"github.com/emillamm/envx"
+)
+
+// Service is the core async lifecycle interface for long-running services.
 type Service interface {
 	// Start service async. If startup fails, it will transition to done.
 	Start(ctx context.Context)
@@ -15,3 +20,14 @@ type Service interface {
 	Err() error
 }
 
+// EnvProvider is optionally implemented by services that modify the environment.
+// Used by e2etest to compose env from infrastructure services.
+type EnvProvider interface {
+	Env() envx.EnvX
+}
+
+// HealthChecker is optionally implemented by services that provide health status.
+// Used by ResourceManager to aggregate health checks.
+type HealthChecker interface {
+	HealthCheck(ctx context.Context) error
+}
