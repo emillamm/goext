@@ -47,6 +47,7 @@ func main() {
 | `OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317`) | empty (stdout mode) |
 | `LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error` | `debug` (local) / `info` (production) |
 
+Here `SERVICE` is referring to the otel definition of a service which could refer to a job, service, deployment etc. in other contexts.
 When `OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via gRPC and logs use JSON format.
 
 ---
