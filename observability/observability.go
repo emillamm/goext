@@ -15,6 +15,7 @@ import (
 	"github.com/emillamm/goext/environment"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -28,7 +29,8 @@ type Config struct {
 	ServiceName    string
 	ServiceVersion string
 	Environment    environment.Environment
-	OTLPEndpoint   string // OTLP collector endpoint (e.g., "localhost:4317")
+	OTLPEndpoint   string // OTLP collector endpoint (e.g., "localhost:4317" for gRPC, "localhost:4318" for HTTP)
+	OTLPProtocol   string // OTLP protocol: "grpc" or "http/protobuf" (default: "grpc")
 	LogLevel       string // "debug", "info", "warn", "error" (optional, defaults based on environment)
 }
 
@@ -44,18 +46,28 @@ type Provider struct {
 //   - SERVICE_NAME: Service name (default: "unknown-service")
 //   - SERVICE_VERSION: Service version (default: "0.0.0")
 //   - ENVIRONMENT: Environment type, "prod" or "local" (required, loaded via environment package)
-//   - OTLP_ENDPOINT: OTLP collector endpoint (default: "", uses stdout tracing when empty)
+//   - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP collector endpoint (default: "", uses stdout tracing when empty)
+//   - OTEL_EXPORTER_OTLP_PROTOCOL: OTLP export protocol, "grpc" or "http/protobuf" (default: "grpc")
 //   - LOG_LEVEL: Log level "debug", "info", "warn", "error" (optional, defaults based on environment)
 func LoadConfig(env envx.EnvX) (Config, error) {
 	checks := envx.NewChecks()
 
 	serviceName := envx.Check(env.String("SERVICE_NAME").Default("unknown-service"))(checks)
 	serviceVersion := envx.Check(env.String("SERVICE_VERSION").Default("0.0.0"))(checks)
-	otlpEndpoint := envx.Check(env.String("OTLP_ENDPOINT").Default(""))(checks)
+	otlpEndpoint := envx.Check(env.String("OTEL_EXPORTER_OTLP_ENDPOINT").Default(""))(checks)
+	otlpProtocol := envx.Check(env.String("OTEL_EXPORTER_OTLP_PROTOCOL").Default("grpc"))(checks)
 	logLevel := envx.Check(env.String("LOG_LEVEL").Default(""))(checks)
 
 	if err := checks.Err(); err != nil {
 		return Config{}, err
+	}
+
+	// Validate protocol value
+	switch otlpProtocol {
+	case "grpc", "http/protobuf":
+		// valid
+	default:
+		return Config{}, fmt.Errorf("invalid OTEL_EXPORTER_OTLP_PROTOCOL %q: must be \"grpc\" or \"http/protobuf\"", otlpProtocol)
 	}
 
 	// Load environment using the environment package (will panic if invalid)
@@ -66,6 +78,7 @@ func LoadConfig(env envx.EnvX) (Config, error) {
 		ServiceVersion: serviceVersion,
 		Environment:    environ,
 		OTLPEndpoint:   otlpEndpoint,
+		OTLPProtocol:   otlpProtocol,
 		LogLevel:       logLevel,
 	}, nil
 }
@@ -109,10 +122,18 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 	var err error
 	if config.OTLPEndpoint != "" {
 		// Production mode: export to OTLP collector
-		exporter, err = otlptracegrpc.New(ctx,
-			otlptracegrpc.WithEndpoint(config.OTLPEndpoint),
-			otlptracegrpc.WithInsecure(), // TLS handled by service mesh/ingress
-		)
+		switch config.OTLPProtocol {
+		case "http/protobuf":
+			exporter, err = otlptracehttp.New(ctx,
+				otlptracehttp.WithEndpoint(config.OTLPEndpoint),
+				otlptracehttp.WithInsecure(), // TLS handled by service mesh/ingress
+			)
+		default: // "grpc"
+			exporter, err = otlptracegrpc.New(ctx,
+				otlptracegrpc.WithEndpoint(config.OTLPEndpoint),
+				otlptracegrpc.WithInsecure(), // TLS handled by service mesh/ingress
+			)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 		}

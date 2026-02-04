@@ -44,11 +44,12 @@ func main() {
 | `SERVICE_NAME` | Service name for traces and logs | `unknown-service` |
 | `SERVICE_VERSION` | Service version | `0.0.0` |
 | `ENVIRONMENT` | Environment type: `prod` or `local` | required |
-| `OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317`) | empty (stdout mode) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317` for gRPC, `localhost:4318` for HTTP) | empty (stdout mode) |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | OTLP export protocol: `grpc` or `http/protobuf` | `grpc` |
 | `LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error` | `debug` (local) / `info` (production) |
 
 Here `SERVICE` is referring to the otel definition of a service which could refer to a job, service, deployment etc. in other contexts.
-When `OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via gRPC and logs use JSON format.
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via the configured protocol and logs use JSON format.
 
 ---
 
@@ -492,4 +493,4 @@ Before deploying, verify:
 - [ ] Tracer names use full package path (e.g., `myservice/app/payments`)
 - [ ] Span names are operation only, no package prefix (e.g., `ProcessPayment` not `payments.ProcessPayment`)
 - [ ] Span names don't include variable data (use attributes instead)
-- [ ] OTLP endpoint is configured for non-local environments
+- [ ] OTLP endpoint and protocol are configured for non-local environments
