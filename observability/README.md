@@ -53,6 +53,39 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is empty, traces are printed to stdout and lo
 
 ---
 
+## Context Helpers
+
+The package provides helper functions for common tracing operations, defined in `context.go`:
+
+| Function | Description |
+|----------|-------------|
+| `StartSpan(ctx, tracerName, spanName, opts...)` | Start a new span (combines tracer lookup + start) |
+| `SpanFromContext(ctx)` | Get the current span from context |
+| `SetSpanError(span, err)` | Record error and set span status to Error |
+| `SetSpanOK(span)` | Set span status to OK |
+| `AddSpanAttributes(span, attrs...)` | Add attributes to a span |
+| `TraceID(ctx)` | Extract trace ID from context (empty string if none) |
+| `SpanID(ctx)` | Extract span ID from context (empty string if none) |
+
+Basic usage pattern:
+
+```go
+ctx, span := observability.StartSpan(ctx, tracerName, "ProcessPayment",
+    trace.WithAttributes(attribute.String("order_id", orderID)),
+)
+defer span.End()
+
+// ... do work ...
+
+if err != nil {
+    observability.SetSpanError(span, err)
+    return err
+}
+observability.SetSpanOK(span)
+```
+
+---
+
 ## Logging Best Practices
 
 ### Use Context-Aware Logging
@@ -161,17 +194,15 @@ Create spans for operations that:
 
 ```go
 import (
-    "go.opentelemetry.io/otel"
+    "github.com/emillamm/goext/observability"
     "go.opentelemetry.io/otel/attribute"
-    "go.opentelemetry.io/otel/codes"
     "go.opentelemetry.io/otel/trace"
 )
 
 const tracerName = "myservice/mypackage"
 
 func ProcessPayment(ctx context.Context, orderID string, amount float64) error {
-    tracer := otel.Tracer(tracerName)
-    ctx, span := tracer.Start(ctx, "ProcessPayment",
+    ctx, span := observability.StartSpan(ctx, tracerName, "ProcessPayment",
         trace.WithAttributes(
             attribute.String("order_id", orderID),
             attribute.Float64("amount", amount),
@@ -182,12 +213,11 @@ func ProcessPayment(ctx context.Context, orderID string, amount float64) error {
     // ... payment logic ...
 
     if err != nil {
-        span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
+        observability.SetSpanError(span, err)
         return err
     }
 
-    span.SetStatus(codes.Ok, "")
+    observability.SetSpanOK(span)
     return nil
 }
 ```
@@ -202,13 +232,11 @@ func ProcessPayment(ctx context.Context, orderID string, amount float64) error {
 const tracerName = "myservice/app/payments"
 
 func ProcessPayment(ctx context.Context, orderID string) error {
-    tracer := otel.Tracer(tracerName)
-
     // Good - operation name only, tracer provides package context
-    ctx, span := tracer.Start(ctx, "ProcessPayment")
+    ctx, span := observability.StartSpan(ctx, tracerName, "ProcessPayment")
 
     // Avoid - redundant package prefix
-    ctx, span := tracer.Start(ctx, "payments.ProcessPayment")
+    ctx, span := observability.StartSpan(ctx, tracerName, "payments.ProcessPayment")
 }
 ```
 
@@ -224,13 +252,13 @@ Span names should be static. Use attributes for variable data:
 
 ```go
 // Good - static name, variable data in attributes
-tracer.Start(ctx, "ProcessOrder",
+observability.StartSpan(ctx, tracerName, "ProcessOrder",
     trace.WithAttributes(attribute.String("order_id", orderID)),
 )
 
 // Bad - includes variable data (causes high cardinality)
-tracer.Start(ctx, fmt.Sprintf("ProcessOrder-%s", orderID))
-tracer.Start(ctx, "SendEmail to " + email)
+observability.StartSpan(ctx, tracerName, fmt.Sprintf("ProcessOrder-%s", orderID))
+observability.StartSpan(ctx, tracerName, "SendEmail to " + email)
 ```
 
 ### Add Relevant Attributes
@@ -238,7 +266,7 @@ tracer.Start(ctx, "SendEmail to " + email)
 Add attributes that help with debugging and analysis:
 
 ```go
-span.SetAttributes(
+observability.AddSpanAttributes(span,
     attribute.String("order_id", orderID),
     attribute.String("customer_id", customerID),
     attribute.Int("item_count", len(items)),
@@ -252,12 +280,11 @@ Always record errors and set span status:
 
 ```go
 if err != nil {
-    span.RecordError(err)  // Records the error as an event
-    span.SetStatus(codes.Error, err.Error())  // Sets span status
+    observability.SetSpanError(span, err)  // Records error + sets span status
     return err
 }
 
-span.SetStatus(codes.Ok, "")  // Mark successful completion
+observability.SetSpanOK(span)  // Mark successful completion
 ```
 
 ### Propagate Context
@@ -307,8 +334,7 @@ Logs emitted within a span automatically include trace context:
 
 ```go
 func ProcessOrder(ctx context.Context, orderID string) error {
-    tracer := otel.Tracer(tracerName)
-    ctx, span := tracer.Start(ctx, "ProcessOrder")
+    ctx, span := observability.StartSpan(ctx, tracerName, "ProcessOrder")
     defer span.End()
 
     // This log will include trace_id and span_id
@@ -316,13 +342,12 @@ func ProcessOrder(ctx context.Context, orderID string) error {
 
     if err := validate(ctx, orderID); err != nil {
         slog.ErrorContext(ctx, "validation failed", "error", err)
-        span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
+        observability.SetSpanError(span, err)
         return err
     }
 
     slog.InfoContext(ctx, "order validated successfully")
-    span.SetStatus(codes.Ok, "")
+    observability.SetSpanOK(span)
     return nil
 }
 ```
@@ -334,10 +359,10 @@ func ProcessOrder(ctx context.Context, orderID string) error {
 
 ```go
 func SendNotification(ctx context.Context, userID, message string) error {
-    ctx, span := tracer.Start(ctx, "SendNotification")
+    ctx, span := observability.StartSpan(ctx, tracerName, "SendNotification",
+        trace.WithAttributes(attribute.String("user_id", userID)),
+    )
     defer span.End()
-
-    span.SetAttributes(attribute.String("user_id", userID))
 
     // Log detailed steps
     slog.DebugContext(ctx, "looking up user preferences")
@@ -362,7 +387,7 @@ func SendNotification(ctx context.Context, userID, message string) error {
 
 When using Kafka with the mika library, use the tracing functions provided by mika.
 
-> **Note:** Use `mika.SetSpanError()` and `mika.SetSpanOK()` for Kafka consumer/producer code. The mika library provides its own span helpers to remain independent of goext. For non-Kafka code, use `observability.SetSpanError()` and `observability.SetSpanOK()`.
+> **Note:** Use `mika.SetSpanError()` and `mika.SetSpanOK()` for Kafka consumer/producer code. The mika library provides its own span helpers to remain independent of goext.
 
 ### Producer Side
 
@@ -450,6 +475,50 @@ func setupRPC(mux *http.ServeMux) error {
 }
 ```
 
+### What otelconnect does automatically
+
+The interceptor handles tracing at the RPC endpoint level -- **you do not need to create spans manually for each handler**. It automatically:
+
+- Creates a **server span** for every incoming RPC call
+- Sets the span name to the full RPC method (e.g., `myservice.v1.MyService/GetUser`)
+- Records errors and sets span status
+- Extracts trace context from incoming request headers (distributed trace propagation)
+- Sets span kind to `Server`
+
+### When to add child spans in handlers
+
+Create child spans inside your handler only for significant sub-operations:
+
+```go
+const tracerName = "myservice/orders"
+
+func (s *OrderService) ProcessOrder(
+    ctx context.Context,
+    req *connect.Request[ordersv1.ProcessOrderRequest],
+) (*connect.Response[ordersv1.ProcessOrderResponse], error) {
+    // otelconnect already created a server span for this RPC.
+    // Create child spans for significant sub-operations:
+    ctx, span := observability.StartSpan(ctx, tracerName, "ValidateInventory")
+    err := s.validateInventory(ctx, req.Msg.OrderId)
+    if err != nil {
+        observability.SetSpanError(span, err)
+        span.End()
+        return nil, err
+    }
+    observability.SetSpanOK(span)
+    span.End()
+
+    // Database queries are traced automatically if using otelpgx.
+    // External service calls should get their own spans.
+
+    return connect.NewResponse(&ordersv1.ProcessOrderResponse{}), nil
+}
+```
+
+You typically do **not** need child spans for:
+- Database queries (already traced by `otelpgx`)
+- Simple field lookups or validation that doesn't call external systems
+
 ---
 
 ## Testing
@@ -486,7 +555,7 @@ Before deploying, verify:
 
 - [ ] All significant operations have spans
 - [ ] Context is propagated through all function calls
-- [ ] Errors are recorded on spans with `RecordError` and `SetStatus`
+- [ ] Errors are recorded on spans with `SetSpanError` (and `SetSpanOK` for success)
 - [ ] Logs use `*Context` methods for trace correlation
 - [ ] No sensitive data in logs or span attributes
 - [ ] Appropriate log levels are used
