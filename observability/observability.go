@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -121,16 +122,23 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 	var exporter sdktrace.SpanExporter
 	var err error
 	if config.OTLPEndpoint != "" {
+		// WithEndpoint expects host:port, not a URL with a scheme.
+		// Strip scheme if present since OTEL_EXPORTER_OTLP_ENDPOINT conventionally includes it.
+		endpoint := config.OTLPEndpoint
+		if u, err := url.Parse(config.OTLPEndpoint); err == nil && u.Host != "" {
+			endpoint = u.Host
+		}
+
 		// Production mode: export to OTLP collector
 		switch config.OTLPProtocol {
 		case "http/protobuf":
 			exporter, err = otlptracehttp.New(ctx,
-				otlptracehttp.WithEndpoint(config.OTLPEndpoint),
+				otlptracehttp.WithEndpoint(endpoint),
 				otlptracehttp.WithInsecure(), // TLS handled by service mesh/ingress
 			)
 		default: // "grpc"
 			exporter, err = otlptracegrpc.New(ctx,
-				otlptracegrpc.WithEndpoint(config.OTLPEndpoint),
+				otlptracegrpc.WithEndpoint(endpoint),
 				otlptracegrpc.WithInsecure(), // TLS handled by service mesh/ingress
 			)
 		}
