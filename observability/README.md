@@ -46,10 +46,11 @@ func main() {
 | `ENVIRONMENT` | Environment type: `prod` or `local` | required |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (e.g., `localhost:4317` for gRPC, `localhost:4318` for HTTP) | empty (stdout mode) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | OTLP export protocol: `grpc` or `http/protobuf` | `grpc` |
+| `OTEL_TRACES_EXPORTER` | Traces exporter: `otlp`, `console`, or `none` | auto-detect (`otlp` if endpoint set, `console` otherwise) |
 | `LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error` | `debug` (local) / `info` (production) |
 
 Here `SERVICE` is referring to the otel definition of a service which could refer to a job, service, deployment etc. in other contexts.
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is empty, traces are printed to stdout and logs use text format. When set, traces are exported via the configured protocol and logs use JSON format.
+When `OTEL_TRACES_EXPORTER` is `otlp`, traces are exported via the configured protocol and logs use JSON format. When `console`, traces are printed to stdout and logs use text format. When `none`, tracing is disabled entirely (noop provider) and logs use text format. If `OTEL_TRACES_EXPORTER` is not set, it defaults to `otlp` when an endpoint is configured, or `console` otherwise.
 
 ---
 

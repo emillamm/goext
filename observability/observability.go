@@ -23,6 +23,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Config holds the configuration for observability setup.
@@ -32,6 +33,7 @@ type Config struct {
 	Environment    environment.Environment
 	OTLPEndpoint   string // OTLP collector endpoint (e.g., "localhost:4317" for gRPC, "localhost:4318" for HTTP)
 	OTLPProtocol   string // OTLP protocol: "grpc" or "http/protobuf" (default: "grpc")
+	TracesExporter string // Traces exporter: "otlp", "console", or "none" (default: auto-detect based on OTLPEndpoint)
 	LogLevel       string // "debug", "info", "warn", "error" (optional, defaults based on environment)
 }
 
@@ -49,6 +51,7 @@ type Provider struct {
 //   - ENVIRONMENT: Environment type, "prod" or "local" (required, loaded via environment package)
 //   - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP collector endpoint (default: "", uses stdout tracing when empty)
 //   - OTEL_EXPORTER_OTLP_PROTOCOL: OTLP export protocol, "grpc" or "http/protobuf" (default: "grpc")
+//   - OTEL_TRACES_EXPORTER: Traces exporter, "otlp", "console", or "none" (default: auto-detect based on endpoint)
 //   - LOG_LEVEL: Log level "debug", "info", "warn", "error" (optional, defaults based on environment)
 func LoadConfig(env envx.EnvX) (Config, error) {
 	checks := envx.NewChecks()
@@ -57,6 +60,7 @@ func LoadConfig(env envx.EnvX) (Config, error) {
 	serviceVersion := envx.Check(env.String("SERVICE_VERSION").Default("0.0.0"))(checks)
 	otlpEndpoint := envx.Check(env.String("OTEL_EXPORTER_OTLP_ENDPOINT").Default(""))(checks)
 	otlpProtocol := envx.Check(env.String("OTEL_EXPORTER_OTLP_PROTOCOL").Default("grpc"))(checks)
+	tracesExporter := envx.Check(env.String("OTEL_TRACES_EXPORTER").Default(""))(checks)
 	logLevel := envx.Check(env.String("LOG_LEVEL").Default(""))(checks)
 
 	if err := checks.Err(); err != nil {
@@ -71,6 +75,23 @@ func LoadConfig(env envx.EnvX) (Config, error) {
 		return Config{}, fmt.Errorf("invalid OTEL_EXPORTER_OTLP_PROTOCOL %q: must be \"grpc\" or \"http/protobuf\"", otlpProtocol)
 	}
 
+	// Default traces exporter based on OTLP endpoint presence
+	if tracesExporter == "" {
+		if otlpEndpoint != "" {
+			tracesExporter = "otlp"
+		} else {
+			tracesExporter = "console"
+		}
+	}
+
+	// Validate traces exporter value
+	switch tracesExporter {
+	case "otlp", "console", "none":
+		// valid
+	default:
+		return Config{}, fmt.Errorf("invalid OTEL_TRACES_EXPORTER %q: must be \"otlp\", \"console\", or \"none\"", tracesExporter)
+	}
+
 	// Load environment using the environment package (will panic if invalid)
 	environ := environment.LoadEnvironment(env)
 
@@ -80,6 +101,7 @@ func LoadConfig(env envx.EnvX) (Config, error) {
 		Environment:    environ,
 		OTLPEndpoint:   otlpEndpoint,
 		OTLPProtocol:   otlpProtocol,
+		TracesExporter: tracesExporter,
 		LogLevel:       logLevel,
 	}, nil
 }
@@ -104,64 +126,72 @@ func parseLogLevel(level string, defaultLevel slog.Level) (slog.Level, bool) {
 }
 
 // New creates a new observability provider with tracing and logging configured.
-// In local mode (no OTLP endpoint), traces are printed to stdout.
-// In production mode, traces are exported via OTLP to the configured endpoint.
+// When TracesExporter is "none", tracing is disabled (noop provider).
+// When TracesExporter is "console", traces are printed to stdout.
+// When TracesExporter is "otlp", traces are exported via OTLP to the configured endpoint.
 func New(ctx context.Context, config Config) (*Provider, error) {
-	// Create resource with service information
-	// Note: We don't use resource.Merge with resource.Default() to avoid schema version conflicts
-	res := resource.NewWithAttributes(
-		semconv.SchemaURL,
-		semconv.ServiceName(config.ServiceName),
-		semconv.ServiceVersion(config.ServiceVersion),
-		semconv.DeploymentEnvironment(config.Environment.String()),
-		semconv.TelemetrySDKLanguageGo,
-		semconv.TelemetrySDKName("opentelemetry"),
-	)
+	var tp *sdktrace.TracerProvider
 
-	// Create trace exporter based on environment
-	var exporter sdktrace.SpanExporter
-	var err error
-	if config.OTLPEndpoint != "" {
-		// WithEndpoint expects host:port, not a URL with a scheme.
-		// Strip scheme if present since OTEL_EXPORTER_OTLP_ENDPOINT conventionally includes it.
-		endpoint := config.OTLPEndpoint
-		if u, err := url.Parse(config.OTLPEndpoint); err == nil && u.Host != "" {
-			endpoint = u.Host
-		}
-
-		// Production mode: export to OTLP collector
-		switch config.OTLPProtocol {
-		case "http/protobuf":
-			exporter, err = otlptracehttp.New(ctx,
-				otlptracehttp.WithEndpoint(endpoint),
-				otlptracehttp.WithInsecure(), // TLS handled by service mesh/ingress
-			)
-		default: // "grpc"
-			exporter, err = otlptracegrpc.New(ctx,
-				otlptracegrpc.WithEndpoint(endpoint),
-				otlptracegrpc.WithInsecure(), // TLS handled by service mesh/ingress
-			)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
-		}
+	if config.TracesExporter == "none" {
+		// Disable tracing: use noop provider
+		otel.SetTracerProvider(noop.NewTracerProvider())
 	} else {
-		// Local mode: print to stdout
-		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
-		if err != nil {
-			return nil, fmt.Errorf("failed to create stdout trace exporter: %w", err)
+		// Create resource with service information
+		// Note: We don't use resource.Merge with resource.Default() to avoid schema version conflicts
+		res := resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(config.ServiceName),
+			semconv.ServiceVersion(config.ServiceVersion),
+			semconv.DeploymentEnvironment(config.Environment.String()),
+			semconv.TelemetrySDKLanguageGo,
+			semconv.TelemetrySDKName("opentelemetry"),
+		)
+
+		// Create trace exporter
+		var exporter sdktrace.SpanExporter
+		var err error
+		switch config.TracesExporter {
+		case "otlp":
+			// WithEndpoint expects host:port, not a URL with a scheme.
+			// Strip scheme if present since OTEL_EXPORTER_OTLP_ENDPOINT conventionally includes it.
+			endpoint := config.OTLPEndpoint
+			if u, err := url.Parse(config.OTLPEndpoint); err == nil && u.Host != "" {
+				endpoint = u.Host
+			}
+
+			switch config.OTLPProtocol {
+			case "http/protobuf":
+				exporter, err = otlptracehttp.New(ctx,
+					otlptracehttp.WithEndpoint(endpoint),
+					otlptracehttp.WithInsecure(), // TLS handled by service mesh/ingress
+				)
+			default: // "grpc"
+				exporter, err = otlptracegrpc.New(ctx,
+					otlptracegrpc.WithEndpoint(endpoint),
+					otlptracegrpc.WithInsecure(), // TLS handled by service mesh/ingress
+				)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
+			}
+		default: // "console"
+			exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
+			if err != nil {
+				return nil, fmt.Errorf("failed to create stdout trace exporter: %w", err)
+			}
 		}
+
+		// Create trace provider
+		tp = sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(exporter),
+			sdktrace.WithResource(res),
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		)
+
+		// Set global trace provider and propagator
+		otel.SetTracerProvider(tp)
 	}
 
-	// Create trace provider
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-	)
-
-	// Set global trace provider and propagator
-	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
@@ -175,7 +205,7 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 	// Determine log level: use configured value or default based on environment
 	var logLevel slog.Level
 	var handler slog.Handler
-	if config.OTLPEndpoint != "" {
+	if config.TracesExporter == "otlp" {
 		// Production: JSON output for log aggregation, default to info
 		logLevel, _ = parseLogLevel(config.LogLevel, slog.LevelInfo)
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -222,7 +252,10 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 
 // Tracer returns a tracer for the given name.
 func (p *Provider) Tracer(name string) trace.Tracer {
-	return p.TracerProvider.Tracer(name)
+	if p.TracerProvider != nil {
+		return p.TracerProvider.Tracer(name)
+	}
+	return otel.Tracer(name)
 }
 
 // ServiceTracer returns a tracer for the configured service.
