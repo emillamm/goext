@@ -42,14 +42,14 @@ func NewService(env envx.EnvX) (*Service, error) {
 	readyCheckTimeout := envx.Check(env.Duration("HTTP_READY_CHECK_TIMEOUT").Default(200 * time.Millisecond))(checks)
 	readyTickInterval := envx.Check(env.Duration("HTTP_READY_TICK_INTERVAL").Default(200 * time.Millisecond))(checks)
 	readyTickTimeout := envx.Check(env.Duration("HTTP_READY_TICK_TIMEOUT").Default(1 * time.Second))(checks)
-	shutdownTimeout := envx.Check(env.Duration("HTTP_READY_TICK_TIMEOUT").Default(15 * time.Second))(checks)
+	shutdownTimeout := envx.Check(env.Duration("HTTP_SHUTDOWN_TIMEOUT").Default(15 * time.Second))(checks)
 
 	if err := checks.Err(); err != nil {
 		return nil, err
 	}
 
 	baseUrl := fmt.Sprintf("%s://%s:%d", hostScheme, host, port)
-	readyCheck := defaultReadyCheck(fmt.Sprintf("%s/%s", baseUrl, readyCheckPath))
+	readyCheck := defaultReadyCheck(fmt.Sprintf("%s%s", baseUrl, readyCheckPath))
 	mux := http.NewServeMux()
 
 	return &Service{

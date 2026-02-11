@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 // ResourceManager handles ordered shutdown and health check aggregation for resources.
@@ -39,7 +40,9 @@ func (m *ResourceManager) Close() {
 		r := m.resources[i]
 		if r.closer != nil {
 			slog.Info("closing resource", "name", r.name)
+			start := time.Now()
 			r.closer()
+			slog.Info("closed resource", "name", r.name, "duration", time.Since(start))
 		}
 	}
 }
@@ -51,7 +54,9 @@ func (m *ResourceManager) HealthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		for _, res := range m.resources {
 			if res.healthCheck != nil {
+				start := time.Now()
 				if err := res.healthCheck(r.Context()); err != nil {
+					slog.Warn("health check failed", "name", res.name, "error", err, "duration", time.Since(start))
 					http.Error(w, fmt.Sprintf("%s: %v", res.name, err), http.StatusServiceUnavailable)
 					return
 				}
