@@ -41,7 +41,7 @@ func NewService(env envx.EnvX) (*Service, error) {
 	readyCheckPath := envx.Check(env.String("HTTP_READY_CHECK_PATH").Default("/health"))(checks)
 	readyCheckTimeout := envx.Check(env.Duration("HTTP_READY_CHECK_TIMEOUT").Default(200 * time.Millisecond))(checks)
 	readyTickInterval := envx.Check(env.Duration("HTTP_READY_TICK_INTERVAL").Default(200 * time.Millisecond))(checks)
-	readyTickTimeout := envx.Check(env.Duration("HTTP_READY_TICK_TIMEOUT").Default(1 * time.Second))(checks)
+	readyTickTimeout := envx.Check(env.Duration("HTTP_READY_TICK_TIMEOUT").Default(5 * time.Second))(checks)
 	shutdownTimeout := envx.Check(env.Duration("HTTP_SHUTDOWN_TIMEOUT").Default(15 * time.Second))(checks)
 
 	if err := checks.Err(); err != nil {
@@ -178,14 +178,15 @@ func chain(handler http.Handler, middleware ...func(http.Handler) http.Handler) 
 
 func defaultReadyCheck(url string) func(context.Context) bool {
 	return func(ctx context.Context) bool {
-		resp, err := http.Get(url)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return false
 		}
-		if resp.StatusCode != 200 {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
 			return false
 		}
-		return true
+		return resp.StatusCode == 200
 	}
 }
 
