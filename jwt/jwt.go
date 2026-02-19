@@ -57,6 +57,7 @@ func BuildToken(env envx.EnvX, userID uuid.UUID, deviceID string) (string, error
 		UserID:   userID,
 		DeviceID: deviceID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.New().String(),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(expirationHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
