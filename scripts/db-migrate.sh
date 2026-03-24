@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-# Start service
-./scripts/manage-service.sh start postgresql
-
-# Run migrations
+manage-service.sh start postgresql
 pgmigrate
-
-# Stop service
-./scripts/manage-service.sh stop postgresql
+manage-service.sh stop postgresql

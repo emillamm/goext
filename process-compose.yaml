@@ -1,2 +1,13 @@
 version: "1.75.2"
 
+processes:
+  postgresql:
+    command: $DEVBOX_SCRIPTS_DIR/services/postgresql/start.sh
+    is_daemon: true
+    shutdown:
+      command: "pg_ctl stop -m fast"
+    availability:
+      restart: "always"
+    readiness_probe:
+      exec:
+        command: $DEVBOX_SCRIPTS_DIR/services/postgresql/ready.sh

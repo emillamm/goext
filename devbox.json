@@ -6,10 +6,11 @@
     "postgresql_17": "latest"
   },
   "env": {
+    "DEVBOX_SCRIPTS_DIR": "$DEVBOX_PROJECT_ROOT/devbox-scripts",
     "CUE_REGISTRY": "github.com/emillamm/cuefig=ghcr.io/emillamm,registry.cue.works",
     "MIGRATION_DIR": "$DEVBOX_PROJECT_ROOT/migrations",
     "HTTP_PORT": "5008",
-    "POSTGRES_PORT": "5432",
+    "POSTGRES_PORT": "5440",
     "POSTGRES_DATABASE": "goext",
     "POSTGRES_USER": "postgres",
     "POSTGRES_PASS": "postgres",
@@ -18,26 +19,30 @@
   },
   "shell": {
     "init_hook": [
+      "git submodule update --init --remote devbox-scripts",
+      ". ./devbox-scripts/init.sh",
       "export POSTGRES_HOST=$PGHOST",
       "export POSTGRES_PASSWORD=$POSTGRES_PASS",
       "go install github.com/emillamm/pgmigrate/cmd/pgmigrate@v0.0.20"
     ],
     "scripts": {
-      "init": "./scripts/db-init.sh",
-      "clean": "./scripts/db-clean.sh",
+      "init": [
+        "manage-service.sh init postgresql"
+      ],
+      "clean": "manage-service.sh clean postgresql",
       "migrate": "./scripts/db-migrate.sh",
       "reset": "./scripts/db-reset.sh",
-      "test": "go test ./...",
-      "ci": [
-        "devbox run init",
-        "devbox run migrate",
-        "devbox services start postgresql",
-        "devbox run test"
-      ],
+      "test": "devbox run go test ./...",
       "cue-deps": [
         "cue mod get github.com/emillamm/cuefig@v0"
       ],
-      "cue-gen": "./cuefig/generate/generate.sh"
+      "cue-gen": "./cuefig/generate/generate.sh",
+      "ci": [
+        "devbox run init",
+        "devbox run migrate",
+        "manage-service.sh start postgresql",
+        "devbox run test"
+      ]
     }
   }
 }

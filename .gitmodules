@@ -1,0 +1,3 @@
+[submodule "devbox-scripts"]
+	path = devbox-scripts
+	url = git@github.com:emillamm/devbox-scripts.git
