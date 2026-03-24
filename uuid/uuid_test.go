@@ -13,6 +13,78 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestNewV7(t *testing.T) {
+	u := NewV7()
+	if guuid.UUID(u) == (guuid.UUID{}) {
+		t.Fatal("expected non-zero UUID")
+	}
+	s := u.String()
+	if len(s) != 22 {
+		t.Fatalf("expected 22-character shortuuid, got %d characters", len(s))
+	}
+}
+
+func TestNewV7Ordering(t *testing.T) {
+	a := NewV7()
+	b := NewV7()
+	// UUIDv7 shortuuid encoding must be lexicographically ordered by time.
+	if a.String() >= b.String() {
+		t.Fatalf("expected %s < %s (time-ordered)", a.String(), b.String())
+	}
+}
+
+func TestNewV5_Deterministic(t *testing.T) {
+	ns := New()
+	data := []byte("hello world")
+
+	a := NewV5(ns, data)
+	b := NewV5(ns, data)
+
+	if a != b {
+		t.Errorf("same inputs produced different UUIDs: %s vs %s", a, b)
+	}
+}
+
+func TestNewV5_DifferentInputs(t *testing.T) {
+	ns := New()
+
+	a := NewV5(ns, []byte("hello"))
+	b := NewV5(ns, []byte("world"))
+
+	if a == b {
+		t.Error("different inputs produced the same UUID")
+	}
+}
+
+func TestNewV5_DifferentNamespaces(t *testing.T) {
+	data := []byte("same data")
+
+	a := NewV5(New(), data)
+	b := NewV5(New(), data)
+
+	if a == b {
+		t.Error("different namespaces produced the same UUID")
+	}
+}
+
+func TestNewV5_RoundTrip(t *testing.T) {
+	ns := New()
+	u := NewV5(ns, []byte("test"))
+
+	s := u.String()
+	if len(s) != 22 {
+		t.Errorf("expected 22-char shortuuid, got %d chars: %s", len(s), s)
+	}
+
+	parsed, err := Parse(s)
+	if err != nil {
+		t.Fatalf("failed to parse back: %v", err)
+	}
+	if parsed != u {
+		t.Error("round-trip failed")
+	}
+}
+
 func TestString(t *testing.T) {
 	u := New()
 	s := u.String()

@@ -15,9 +15,26 @@ type UUID guuid.UUID
 // Nil type (all zeros)
 var Nil UUID
 
-// New generates a new random UUID.
+// New generates a new random UUID (v4).
 func New() UUID {
 	return UUID(guuid.New())
+}
+
+// NewV5 generates a deterministic UUID (v5) from a namespace and data using SHA-1.
+// The same (namespace, data) always produces the same UUID.
+func NewV5(namespace UUID, data []byte) UUID {
+	return UUID(guuid.NewSHA1(guuid.UUID(namespace), data))
+}
+
+// NewV7 generates a new time-ordered UUID (v7).
+// The timestamp is embedded in the most significant bits, so UUIDs generated
+// later are lexicographically greater in both raw and shortuuid-encoded form.
+func NewV7() UUID {
+	u, err := guuid.NewV7()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate UUIDv7: %v", err))
+	}
+	return UUID(u)
 }
 
 // String returns the shortuuid-encoded string representation (22 characters).
