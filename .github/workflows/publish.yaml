@@ -40,7 +40,7 @@ jobs:
       - name: Generate CUE OCI login creds
         run: |-
           mkdir -p ~/.docker
-          echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}' > ~/.docker/config.json
+          echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64 -w0)'"}}}' > ~/.docker/config.json
       - name: Verify that cue-generated files are up to date
         run: |-
           before=$(git status --porcelain)
