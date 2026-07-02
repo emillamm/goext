@@ -2,6 +2,7 @@ package uuid
 
 import (
 	"testing"
+	"time"
 
 	guuid "github.com/google/uuid"
 )
@@ -30,6 +31,51 @@ func TestNewV7Ordering(t *testing.T) {
 	// UUIDv7 shortuuid encoding must be lexicographically ordered by time.
 	if a.String() >= b.String() {
 		t.Fatalf("expected %s < %s (time-ordered)", a.String(), b.String())
+	}
+}
+
+func TestCompare(t *testing.T) {
+	a := NewV7()
+	b := NewV7()
+
+	if a.Compare(b) >= 0 {
+		t.Fatalf("expected a < b for sequentially generated v7 UUIDs")
+	}
+	if b.Compare(a) <= 0 {
+		t.Fatalf("expected b > a")
+	}
+	if a.Compare(a) != 0 {
+		t.Fatalf("expected a == a")
+	}
+}
+
+func TestBeforeAfter(t *testing.T) {
+	a := NewV7()
+	b := NewV7()
+
+	if !a.Before(b) {
+		t.Fatalf("expected a.Before(b) to be true")
+	}
+	if !b.After(a) {
+		t.Fatalf("expected b.After(a) to be true")
+	}
+	if a.After(b) {
+		t.Fatalf("expected a.After(b) to be false")
+	}
+}
+
+func TestTime(t *testing.T) {
+	before := time.Now()
+	u := NewV7()
+	after := time.Now()
+
+	ts := u.Time()
+	// v7 timestamps are millisecond-precision, so widen the window by a
+	// millisecond on each side to avoid flakiness at the boundaries.
+	lo := before.Add(-time.Millisecond)
+	hi := after.Add(time.Millisecond)
+	if ts.Before(lo) || ts.After(hi) {
+		t.Fatalf("expected embedded time %v within [%v, %v]", ts, lo, hi)
 	}
 }
 

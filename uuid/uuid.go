@@ -1,8 +1,10 @@
 package uuid
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"fmt"
+	"time"
 
 	guuid "github.com/google/uuid"
 	"github.com/lithammer/shortuuid/v4"
@@ -44,6 +46,39 @@ func (u UUID) String() string {
 
 func (u UUID) Underlying() guuid.UUID {
 	return guuid.UUID(u)
+}
+
+// Compare returns -1 if u < other, 0 if u == other, and +1 if u > other,
+// ordered by the raw 16-byte value. For time-ordered v7 UUIDs this is
+// equivalent to comparing their timestamps, with the trailing random bits
+// breaking ties between UUIDs generated in the same millisecond.
+func (u UUID) Compare(other UUID) int {
+	a, b := guuid.UUID(u), guuid.UUID(other)
+	return bytes.Compare(a[:], b[:])
+}
+
+// Before reports whether u was generated before other. It is only meaningful
+// for time-ordered UUIDs (e.g. v7); see Compare.
+func (u UUID) Before(other UUID) bool {
+	return u.Compare(other) < 0
+}
+
+// After reports whether u was generated after other. It is only meaningful
+// for time-ordered UUIDs (e.g. v7); see Compare.
+func (u UUID) After(other UUID) bool {
+	return u.Compare(other) > 0
+}
+
+// Time returns the timestamp embedded in the UUID.
+//
+// Like google/uuid's Time, the returned value is only meaningful for
+// time-based UUIDs (v1, v2, v6, v7). Calling it on a random (v4) or hashed
+// (v5) UUID does not error or panic; it reinterprets the leading bytes as a
+// timestamp and returns a meaningless value. It is the caller's
+// responsibility to know the UUID is time-based.
+func (u UUID) Time() time.Time {
+	sec, nsec := guuid.UUID(u).Time().UnixTime()
+	return time.Unix(sec, nsec)
 }
 
 // Value implements driver.Valuer for database writes.
